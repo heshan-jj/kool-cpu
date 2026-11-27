@@ -4,6 +4,7 @@
 mod icons;
 mod settings;
 mod tray;
+mod updater;
 
 use kool_cpu_backend::native_backend;
 use kool_cpu_core::{AutoAction, AutoConfig, AutoController, Backend, Telemetry, BUILTIN_PROFILES};
@@ -12,6 +13,7 @@ use eframe::egui::{
     RichText, ScrollArea, Sense, Shape, Stroke, StrokeKind, Vec2,
 };
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -227,6 +229,8 @@ struct CoolerApp {
     sync: Arc<WorkerSync>,
     tray: Option<tray::Tray>,
     settings: settings::AppSettings,
+    update_state: Arc<Mutex<updater::UpdateState>>,
+    relaunch_ready: Arc<AtomicBool>,
     page: Page,
     quitting: bool,
     slider_mhz: u32,
@@ -248,16 +252,62 @@ impl CoolerApp {
         } else {
             None
         };
-        Self {
+        let update_state = Arc::new(Mutex::new(updater::UpdateState::Idle));
+        let app = Self {
             sync,
             tray,
             settings,
+            update_state,
+            relaunch_ready: Arc::new(AtomicBool::new(false)),
             page: Page::Monitor,
             quitting: false,
             slider_mhz: 3100,
             slider_synced: false,
             slider_dirty: false,
+        };
+        app.spawn_update_check(cc.egui_ctx.clone(), true);
+        app
+    }
+
+    fn spawn_update_check(&self, ctx: egui::Context, silent: bool) {
+        let state = Arc::clone(&self.update_state);
+        *state.lock().unwrap() = updater::UpdateState::Checking;
+        thread::spawn(move || {
+            let next = match updater::check_latest() {
+                Ok(Some(info)) => updater::UpdateState::Available(info),
+                Ok(None) => updater::UpdateState::UpToDate,
+                Err(_) if silent => updater::UpdateState::Idle,
+                Err(e) => updater::UpdateState::Error(e),
+            };
+            *state.lock().unwrap() = next;
+            ctx.request_repaint();
+        });
+    }
+
+    fn spawn_update_install(&self, info: updater::ReleaseInfo, ctx: egui::Context) {
+        let state = Arc::clone(&self.update_state);
+        let relaunch = Arc::clone(&self.relaunch_ready);
+        let sync = Arc::clone(&self.sync);
+        *state.lock().unwrap() = updater::UpdateState::Updating;
+        {
+            let mut s = sync.state.lock().unwrap();
+            s.status = format!("Downloading and verifying {}...", info.tag);
+            s.is_error = false;
         }
+        thread::spawn(move || {
+            match updater::download_and_install(&info) {
+                Ok(()) => {
+                    relaunch.store(true, Ordering::SeqCst);
+                }
+                Err(e) => {
+                    *state.lock().unwrap() = updater::UpdateState::Error(e.clone());
+                    let mut s = sync.state.lock().unwrap();
+                    s.status = format!("Update failed: {e}");
+                    s.is_error = true;
+                }
+            }
+            ctx.request_repaint();
+        });
     }
 
     fn set_status(&self, msg: impl Into<String>, is_error: bool) {
@@ -384,6 +434,78 @@ impl CoolerApp {
             });
 
         ui.add_space(10.0);
+
+        // Updates card
+        let upd = self.update_state.lock().unwrap().clone();
+        let mut start_check = false;
+        let mut start_install: Option<updater::ReleaseInfo> = None;
+
+        Frame::new()
+            .fill(MD_SURFACE_CONTAINER)
+            .corner_radius(CornerRadius::same(14))
+            .inner_margin(Margin::same(14))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    md_icon_badge(ui, MdIcon::Download);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Updates").size(13.5).strong());
+                            ui.label(
+                                RichText::new(format!("v{}", updater::CURRENT_VERSION))
+                                    .font(FontId::monospace(11.5))
+                                    .color(MD_ON_SURFACE_VARIANT),
+                            );
+                        });
+                        let (sub, col) = match &upd {
+                            updater::UpdateState::Idle => ("Check GitHub Releases for new versions".into(), MD_ON_SURFACE_VARIANT),
+                            updater::UpdateState::Checking => ("Checking for updates...".into(), MD_ON_SURFACE_VARIANT),
+                            updater::UpdateState::UpToDate => ("You are on the latest version".into(), MD_COOL),
+                            updater::UpdateState::Available(info) => (format!("{} is available", info.tag), MD_PRIMARY),
+                            updater::UpdateState::Updating => ("Downloading & verifying SHA-256...".into(), MD_PRIMARY),
+                            updater::UpdateState::Error(e) => (e.clone(), MD_ERROR),
+                        };
+                        ui.label(RichText::new(sub).size(12.0).color(col));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| match &upd {
+                        updater::UpdateState::Available(info) => {
+                            let btn = egui::Button::new(RichText::new("Update").size(12.5).strong().color(MD_ON_PRIMARY))
+                                .fill(MD_PRIMARY)
+                                .corner_radius(CornerRadius::same(18))
+                                .min_size(Vec2::new(76.0, 32.0));
+                            if ui.add(btn).clicked() {
+                                start_install = Some(info.clone());
+                            }
+                        }
+                        updater::UpdateState::Checking | updater::UpdateState::Updating => {
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(RichText::new("Working...").size(12.0).color(MD_ON_SURFACE_VARIANT))
+                                    .fill(MD_SURFACE_CONTAINER_HIGH)
+                                    .corner_radius(CornerRadius::same(18))
+                                    .min_size(Vec2::new(76.0, 32.0)),
+                            );
+                        }
+                        _ => {
+                            let btn = egui::Button::new(RichText::new("Check").size(12.5).strong().color(MD_ON_SURFACE))
+                                .fill(MD_SURFACE_CONTAINER_HIGH)
+                                .corner_radius(CornerRadius::same(18))
+                                .min_size(Vec2::new(72.0, 32.0));
+                            if ui.add(btn).clicked() {
+                                start_check = true;
+                            }
+                        }
+                    });
+                });
+            });
+
+        if start_check {
+            self.spawn_update_check(ui.ctx().clone(), false);
+        } else if let Some(info) = start_install {
+            self.spawn_update_install(info, ui.ctx().clone());
+        }
+
+        ui.add_space(10.0);
         ui.label(
             RichText::new(format!("Saved to {}", settings::AppSettings::config_path().display()))
                 .size(11.0)
@@ -442,6 +564,7 @@ enum MdIcon {
     Tray,
     Power,
     Reset,
+    Download,
 }
 
 fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Color32) {
@@ -511,11 +634,23 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
             painter.line_segment([tip, Pos2::new(tip.x - 3.5, tip.y - 2.5)], stroke);
             painter.line_segment([tip, Pos2::new(tip.x - 3.0, tip.y + 3.0)], stroke);
         }
+        MdIcon::Download => {
+            // Material download: downward arrow + bottom tray bar
+            let top = Pos2::new(center.x, center.y - 6.5);
+            let tip = Pos2::new(center.x, center.y + 2.5);
+            painter.line_segment([top, tip], stroke);
+            painter.line_segment([tip, Pos2::new(center.x - 4.0, center.y - 1.5)], stroke);
+            painter.line_segment([tip, Pos2::new(center.x + 4.0, center.y - 1.5)], stroke);
+            painter.line_segment(
+                [Pos2::new(center.x - 6.0, center.y + 6.0), Pos2::new(center.x + 6.0, center.y + 6.0)],
+                stroke,
+            );
+        }
     }
 }
 
-/// Material 3 circular 36x36 IconButton with hover/focus states.
-fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str) -> egui::Response {
+/// Material 3 circular 36x36 IconButton with hover/focus states and optional notification dot.
+fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str, badge_dot: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
     let painter = ui.painter();
     let radius = rect.width() * 0.5;
@@ -534,6 +669,9 @@ fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str) -> egui::Respo
     }
     let fg = if resp.hovered() { MD_ON_SURFACE } else { MD_ON_SURFACE_VARIANT };
     paint_md_icon(painter, rect.center(), icon, fg);
+    if badge_dot {
+        painter.circle_filled(Pos2::new(rect.right() - 8.0, rect.top() + 8.0), 4.0, MD_PRIMARY);
+    }
     resp.on_hover_text(tooltip)
 }
 
@@ -816,6 +954,13 @@ impl eframe::App for CoolerApp {
         let mut trigger_cap: Option<(Option<u32>, bool)> = None;
         let mut wake_worker = false;
 
+        // Close old process once the newly updated binary has been spawned.
+        if self.relaunch_ready.load(Ordering::SeqCst) {
+            self.quitting = true;
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+
         // Handle system tray menu, left-click, and live temperature icon updates.
         let (tray_temp, tray_cap) = {
             let s = self.sync.state.lock().unwrap();
@@ -899,11 +1044,19 @@ impl eframe::App for CoolerApp {
                             ui.label(RichText::new(cpu).size(12.0).color(MD_ON_SURFACE_VARIANT));
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let (icon, tip) = match self.page {
-                                Page::Monitor => (MdIcon::Settings, "Settings"),
-                                Page::Settings => (MdIcon::ArrowBack, "Back to monitor"),
+                            let has_update = matches!(
+                                *self.update_state.lock().unwrap(),
+                                updater::UpdateState::Available(_)
+                            );
+                            let (icon, tip, dot) = match self.page {
+                                Page::Monitor => (
+                                    MdIcon::Settings,
+                                    if has_update { "Settings (update available)" } else { "Settings" },
+                                    has_update,
+                                ),
+                                Page::Settings => (MdIcon::ArrowBack, "Back to monitor", false),
                             };
-                            if md_icon_button(ui, icon, tip).clicked() {
+                            if md_icon_button(ui, icon, tip, dot).clicked() {
                                 self.page = match self.page {
                                     Page::Monitor => Page::Settings,
                                     Page::Settings => Page::Monitor,
@@ -1098,7 +1251,8 @@ impl eframe::App for CoolerApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if self.settings.reset_on_exit {
+        // Skip resetting CPU speed if we're only exiting to hand off to the newly updated binary.
+        if self.settings.reset_on_exit && !self.relaunch_ready.load(Ordering::SeqCst) {
             let _ = native_backend().set_cap_mhz(None);
         }
     }
@@ -1113,6 +1267,7 @@ fn capitalize(s: &str) -> String {
 }
 
 fn main() -> eframe::Result {
+    updater::cleanup_old_binary();
     let launched_at_startup = std::env::args().any(|a| a == "--startup");
     let app_settings = settings::AppSettings::load();
     let start_visible = !(launched_at_startup && app_settings.show_in_tray);

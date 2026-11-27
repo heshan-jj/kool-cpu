@@ -58,14 +58,17 @@ jobs:
         with:
           path: artifacts
 
-      - name: Zip release bundles
+      - name: Zip release bundles and generate SHA-256 checksums
         run: |
           cd artifacts
           for dir in */; do
             name="${dir%/}"
             (cd "$dir" && zip -r "../${name}.zip" .)
           done
+          sha256sum *.zip > checksums.txt
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.zip
+          files: |
+            artifacts/*.zip
+            artifacts/checksums.txt
