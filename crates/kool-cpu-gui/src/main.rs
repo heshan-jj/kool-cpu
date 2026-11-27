@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Cross-platform Material Design 3 egui GUI for kool-cpu (Windows & Linux).
 
+mod icons;
 mod settings;
 mod tray;
 
@@ -1116,10 +1117,17 @@ fn main() -> eframe::Result {
     let app_settings = settings::AppSettings::load();
     let start_visible = !(launched_at_startup && app_settings.show_in_tray);
 
+    let app_icon = egui::IconData {
+        rgba: icons::render_app_icon_rgba(64),
+        width: 64,
+        height: 64,
+    };
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([450.0, 580.0])
             .with_min_inner_size([390.0, 460.0])
+            .with_icon(app_icon)
             .with_visible(start_visible),
         ..Default::default()
     };
