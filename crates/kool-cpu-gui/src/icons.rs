@@ -265,6 +265,62 @@ pub fn render_app_icon_rgba(size: usize) -> Vec<u8> {
     out
 }
 
+/// Encode multiple RGBA square sizes into a standard Windows `.ico` (32-bit BGRA DIB entries).
+#[allow(dead_code)]
+pub fn encode_app_ico(sizes: &[usize]) -> Vec<u8> {
+    let mut images: Vec<(usize, Vec<u8>)> = Vec::with_capacity(sizes.len());
+    for &sz in sizes {
+        let rgba = render_app_icon_rgba(sz);
+        let xor_len = sz * sz * 4;
+        let and_row = ((sz + 31) / 32) * 4;
+        let and_len = and_row * sz;
+        let mut dib = Vec::with_capacity(40 + xor_len + and_len);
+        // BITMAPINFOHEADER (40 bytes); biHeight is 2*sz for XOR + AND masks.
+        dib.extend_from_slice(&40u32.to_le_bytes());
+        dib.extend_from_slice(&(sz as i32).to_le_bytes());
+        dib.extend_from_slice(&((sz * 2) as i32).to_le_bytes());
+        dib.extend_from_slice(&1u16.to_le_bytes()); // planes
+        dib.extend_from_slice(&32u16.to_le_bytes()); // bpp
+        dib.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
+        dib.extend_from_slice(&((xor_len + and_len) as u32).to_le_bytes());
+        dib.extend_from_slice(&[0u8; 16]);
+        // Bottom-up BGRA rows
+        for y in (0..sz).rev() {
+            for x in 0..sz {
+                let i = (y * sz + x) * 4;
+                dib.extend_from_slice(&[rgba[i + 2], rgba[i + 1], rgba[i], rgba[i + 3]]);
+            }
+        }
+        // AND mask (all 0s; alpha channel drives transparency)
+        dib.resize(dib.len() + and_len, 0);
+        images.push((sz, dib));
+    }
+
+    let mut out = Vec::new();
+    // ICONDIR header (6 bytes)
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // type = ICO
+    out.extend_from_slice(&(images.len() as u16).to_le_bytes());
+
+    let mut offset = (6 + images.len() * 16) as u32;
+    for (sz, dib) in &images {
+        let dim = if *sz >= 256 { 0u8 } else { *sz as u8 };
+        out.push(dim);
+        out.push(dim);
+        out.push(0); // palette
+        out.push(0); // reserved
+        out.extend_from_slice(&1u16.to_le_bytes()); // planes
+        out.extend_from_slice(&32u16.to_le_bytes()); // bpp
+        out.extend_from_slice(&(dib.len() as u32).to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+        offset += dib.len() as u32;
+    }
+    for (_, dib) in images {
+        out.extend_from_slice(&dib);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,5 +337,11 @@ mod tests {
         // Must contain both CPU sky-blue and crystal mint accents
         assert!(app.chunks_exact(4).any(|p| p[2] > 200 && p[3] > 200));
         assert!(app.chunks_exact(4).any(|p| p[1] > 200 && p[3] > 200));
+
+        let ico = encode_app_ico(&[16, 32, 48, 64]);
+        assert_eq!(&ico[0..6], &[0, 0, 1, 0, 4, 0]);
+        if let Ok(path) = std::env::var("KOOL_CPU_WRITE_ICO") {
+            std::fs::write(path, &ico).unwrap();
+        }
     }
 }
