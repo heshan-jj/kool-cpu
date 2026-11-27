@@ -276,6 +276,7 @@ impl CoolerApp {
             .inner_margin(Margin::same(14))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    md_icon_badge(ui, MdIcon::Tray);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(RichText::new("Show in system tray").size(13.5).strong());
@@ -316,6 +317,7 @@ impl CoolerApp {
 
                 // Run on startup with cool mode off
                 ui.horizontal(|ui| {
+                    md_icon_badge(ui, MdIcon::Power);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(RichText::new("Run on startup (cool mode off)").size(13.5).strong());
@@ -353,6 +355,7 @@ impl CoolerApp {
 
                 // Reset throttle on exit
                 ui.horizontal(|ui| {
+                    md_icon_badge(ui, MdIcon::Reset);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(RichText::new("Reset CPU speed on exit").size(13.5).strong());
@@ -428,6 +431,116 @@ fn md_chip(ui: &mut egui::Ui, text: &str, bg: Color32, fg: Color32) {
         .show(ui, |ui| {
             ui.label(RichText::new(text).size(12.0).strong().color(fg));
         });
+}
+
+/// Drawn Material Symbols vector icons (consistent 1.8px stroke, crisp at any DPI).
+#[derive(Clone, Copy)]
+enum MdIcon {
+    Settings,
+    ArrowBack,
+    Tray,
+    Power,
+    Reset,
+}
+
+fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Color32) {
+    let stroke = Stroke::new(1.8, color);
+    match icon {
+        MdIcon::Settings => {
+            // Material gear: inner ring + outer ring + 8 radial teeth
+            painter.circle_stroke(center, 2.8, stroke);
+            painter.circle_stroke(center, 6.2, stroke);
+            for i in 0..8 {
+                let a = (i as f32) * std::f32::consts::FRAC_PI_4;
+                let (sin, cos) = a.sin_cos();
+                let p0 = Pos2::new(center.x + cos * 6.4, center.y + sin * 6.4);
+                let p1 = Pos2::new(center.x + cos * 8.6, center.y + sin * 8.6);
+                painter.line_segment([p0, p1], Stroke::new(2.2, color));
+            }
+        }
+        MdIcon::ArrowBack => {
+            // Material arrow_back: horizontal shaft + 45-degree chevron
+            let left = Pos2::new(center.x - 6.0, center.y);
+            let right = Pos2::new(center.x + 6.0, center.y);
+            painter.line_segment([left, right], stroke);
+            painter.line_segment([left, Pos2::new(center.x - 1.0, center.y - 5.0)], stroke);
+            painter.line_segment([left, Pos2::new(center.x - 1.0, center.y + 5.0)], stroke);
+        }
+        MdIcon::Tray => {
+            // Material dock/tray: rounded monitor box with bottom bar
+            let r = Rect::from_center_size(center, Vec2::new(14.0, 12.0));
+            painter.rect_stroke(r, 2.5, stroke, StrokeKind::Inside);
+            painter.line_segment(
+                [Pos2::new(r.left() + 2.0, r.bottom() - 3.5), Pos2::new(r.right() - 2.0, r.bottom() - 3.5)],
+                Stroke::new(1.5, color),
+            );
+        }
+        MdIcon::Power => {
+            // Material power_settings_new: open ring + top vertical stem
+            let segs = 18;
+            let rad = 6.5;
+            let start = -std::f32::consts::FRAC_PI_2 + 0.55;
+            let end = std::f32::consts::TAU - std::f32::consts::FRAC_PI_2 - 0.55;
+            let pts: Vec<Pos2> = (0..=segs)
+                .map(|i| {
+                    let a = start + (end - start) * (i as f32 / segs as f32);
+                    Pos2::new(center.x + a.cos() * rad, center.y + a.sin() * rad)
+                })
+                .collect();
+            painter.add(Shape::line(pts, stroke));
+            painter.line_segment(
+                [Pos2::new(center.x, center.y - 8.0), Pos2::new(center.x, center.y - 1.5)],
+                stroke,
+            );
+        }
+        MdIcon::Reset => {
+            // Material restart_alt: 270-degree circular arc + arrowhead
+            let segs = 18;
+            let rad = 6.5;
+            let start = -std::f32::consts::FRAC_PI_2;
+            let end = start + std::f32::consts::TAU * 0.78;
+            let pts: Vec<Pos2> = (0..=segs)
+                .map(|i| {
+                    let a = start + (end - start) * (i as f32 / segs as f32);
+                    Pos2::new(center.x + a.cos() * rad, center.y + a.sin() * rad)
+                })
+                .collect();
+            painter.add(Shape::line(pts, stroke));
+            let tip = Pos2::new(center.x, center.y - rad);
+            painter.line_segment([tip, Pos2::new(tip.x - 3.5, tip.y - 2.5)], stroke);
+            painter.line_segment([tip, Pos2::new(tip.x - 3.0, tip.y + 3.0)], stroke);
+        }
+    }
+}
+
+/// Material 3 circular 36x36 IconButton with hover/focus states.
+fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
+    let painter = ui.painter();
+    let radius = rect.width() * 0.5;
+    let fill = if resp.is_pointer_button_down_on() {
+        MD_PRIMARY_CONTAINER
+    } else if resp.hovered() {
+        MD_SURFACE_CONTAINER_HIGH
+    } else {
+        Color32::TRANSPARENT
+    };
+    if fill != Color32::TRANSPARENT {
+        painter.circle_filled(rect.center(), radius, fill);
+    }
+    if resp.has_focus() {
+        painter.circle_stroke(rect.center(), radius, Stroke::new(1.5, MD_PRIMARY));
+    }
+    let fg = if resp.hovered() { MD_ON_SURFACE } else { MD_ON_SURFACE_VARIANT };
+    paint_md_icon(painter, rect.center(), icon, fg);
+    resp.on_hover_text(tooltip)
+}
+
+fn md_icon_badge(ui: &mut egui::Ui, icon: MdIcon) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::hover());
+    let painter = ui.painter();
+    painter.circle_filled(rect.center(), 16.0, MD_SURFACE_CONTAINER_HIGH);
+    paint_md_icon(painter, rect.center(), icon, MD_PRIMARY);
 }
 
 /// Drawn vector checkmark (avoids Unicode glyph substitution).
@@ -777,15 +890,11 @@ impl eframe::App for CoolerApp {
                             ui.label(RichText::new(cpu).size(12.0).color(MD_ON_SURFACE_VARIANT));
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let nav_label = match self.page {
-                                Page::Monitor => "Settings",
-                                Page::Settings => "Back",
+                            let (icon, tip) = match self.page {
+                                Page::Monitor => (MdIcon::Settings, "Settings"),
+                                Page::Settings => (MdIcon::ArrowBack, "Back to monitor"),
                             };
-                            let nav_btn = egui::Button::new(RichText::new(nav_label).size(12.0).strong().color(MD_ON_SURFACE))
-                                .fill(MD_SURFACE_CONTAINER_HIGH)
-                                .corner_radius(CornerRadius::same(16))
-                                .min_size(Vec2::new(66.0, 28.0));
-                            if ui.add(nav_btn).clicked() {
+                            if md_icon_button(ui, icon, tip).clicked() {
                                 self.page = match self.page {
                                     Page::Monitor => Page::Settings,
                                     Page::Settings => Page::Monitor,
