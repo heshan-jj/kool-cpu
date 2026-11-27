@@ -242,10 +242,17 @@ impl CoolerApp {
     fn new(cc: &eframe::CreationContext<'_>, settings: settings::AppSettings, launched_at_startup: bool) -> Self {
         configure_material3(&cc.egui_ctx);
         let sync = WorkerSync::new();
-        if launched_at_startup {
-            // Startup mode always begins with cool mode / auto mode off (full default speed).
-            sync.request_cap(None, true);
+
+        // Restore saved Auto config and apply remembered speed (Balanced 3100 MHz by default).
+        {
+            let mut s = sync.state.lock().unwrap();
+            s.auto_cfg = settings.auto_cfg;
+            s.auto_enabled = !launched_at_startup && settings.last_auto_enabled;
         }
+        if launched_at_startup || !settings.last_auto_enabled {
+            sync.request_cap(settings.last_cap_mhz, launched_at_startup);
+        }
+
         spawn_worker(Arc::clone(&sync), cc.egui_ctx.clone());
         let tray = if settings.show_in_tray {
             tray::Tray::new().ok()
@@ -253,6 +260,7 @@ impl CoolerApp {
             None
         };
         let update_state = Arc::new(Mutex::new(updater::UpdateState::Idle));
+        let slider_mhz = settings.last_cap_mhz.unwrap_or(settings::DEFAULT_CAP_MHZ);
         let app = Self {
             sync,
             tray,
@@ -261,8 +269,8 @@ impl CoolerApp {
             relaunch_ready: Arc::new(AtomicBool::new(false)),
             page: Page::Monitor,
             quitting: false,
-            slider_mhz: 3100,
-            slider_synced: false,
+            slider_mhz,
+            slider_synced: true,
             slider_dirty: false,
         };
         app.spawn_update_check(cc.egui_ctx.clone(), true);
@@ -366,14 +374,14 @@ impl CoolerApp {
 
                 section_divider(ui);
 
-                // Run on startup with cool mode off
+                // Run on startup
                 ui.horizontal(|ui| {
                     md_icon_badge(ui, MdIcon::Power);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        ui.label(RichText::new("Run on startup (cool mode off)").size(13.5).strong());
+                        ui.label(RichText::new("Run on startup").size(13.5).strong());
                         ui.label(
-                            RichText::new("Launch at sign-in with capping and Auto mode disabled")
+                            RichText::new("Launch at sign-in with your saved speed (default: Balanced 3.1 GHz)")
                                 .size(12.0)
                                 .color(MD_ON_SURFACE_VARIANT),
                         );
@@ -386,7 +394,7 @@ impl CoolerApp {
                                         self.set_status(e, true);
                                     } else {
                                         let msg = if self.settings.run_on_startup {
-                                            "Startup enabled (launches with cool mode off)"
+                                            "Startup enabled (uses your saved speed)"
                                         } else {
                                             "Startup disabled"
                                         };
@@ -1220,21 +1228,25 @@ impl eframe::App for CoolerApp {
                             .corner_radius(CornerRadius::same(12))
                             .inner_margin(Margin::same(12))
                             .show(ui, |ui| {
+                                let mut cfg_changed = false;
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new("Throttle ≥").size(12.0).color(MD_ON_SURFACE_VARIANT));
-                                    ui.add(egui::DragValue::new(&mut s.auto_cfg.high_c).range(50.0..=95.0).suffix(" °C"));
+                                    cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.high_c).range(50.0..=95.0).suffix(" °C")).changed();
                                     ui.add_space(12.0);
                                     ui.label(RichText::new("Relax ≤").size(12.0).color(MD_ON_SURFACE_VARIANT));
-                                    ui.add(egui::DragValue::new(&mut s.auto_cfg.low_c).range(40.0..=90.0).suffix(" °C"));
+                                    cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.low_c).range(40.0..=90.0).suffix(" °C")).changed();
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new("Min").size(12.0).color(MD_ON_SURFACE_VARIANT));
-                                    ui.add(egui::DragValue::new(&mut s.auto_cfg.min_mhz).range(800..=4000).speed(100).suffix(" MHz"));
+                                    cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.min_mhz).range(800..=4000).speed(100).suffix(" MHz")).changed();
                                     ui.label(RichText::new("Max").size(12.0).color(MD_ON_SURFACE_VARIANT));
-                                    ui.add(egui::DragValue::new(&mut s.auto_cfg.max_mhz).range(1200..=5500).speed(100).suffix(" MHz"));
+                                    cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.max_mhz).range(1200..=5500).speed(100).suffix(" MHz")).changed();
                                     ui.label(RichText::new("Step").size(12.0).color(MD_ON_SURFACE_VARIANT));
-                                    ui.add(egui::DragValue::new(&mut s.auto_cfg.step_mhz).range(100..=500).speed(50).suffix(" MHz"));
+                                    cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.step_mhz).range(100..=500).speed(50).suffix(" MHz")).changed();
                                 });
+                                if cfg_changed {
+                                    wake_worker = true;
+                                }
                                 if let Err(msg) = s.auto_cfg.validate() {
                                     ui.label(RichText::new(msg).size(11.5).color(MD_ERROR));
                                 }
@@ -1244,8 +1256,20 @@ impl eframe::App for CoolerApp {
             });
 
         if let Some((cap, disable_auto)) = trigger_cap {
+            self.settings.last_cap_mhz = cap;
+            if disable_auto {
+                self.settings.last_auto_enabled = false;
+            }
+            let _ = self.settings.save();
             self.sync.request_cap(cap, disable_auto);
         } else if wake_worker {
+            let (auto_on, auto_cfg) = {
+                let s = self.sync.state.lock().unwrap();
+                (s.auto_enabled, s.auto_cfg)
+            };
+            self.settings.last_auto_enabled = auto_on;
+            self.settings.auto_cfg = auto_cfg;
+            let _ = self.settings.save();
             self.sync.notify();
         }
     }

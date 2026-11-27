@@ -1,13 +1,21 @@
-//! Persistent GUI settings and OS login-startup integration (Windows Task Scheduler / Linux XDG autostart).
+//! Persistent GUI settings, remembered CPU speed/profile, and OS login-startup integration.
 
+use kool_cpu_core::AutoConfig;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub const DEFAULT_CAP_MHZ: u32 = 3100; // Balanced
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppSettings {
     pub show_in_tray: bool,
     pub run_on_startup: bool,
     pub reset_on_exit: bool,
+    /// Remembered manual/profile cap (`None` = unlimited/Max). Defaults to Balanced (3100 MHz).
+    pub last_cap_mhz: Option<u32>,
+    /// Whether Auto Thermal Mode was enabled on last normal session.
+    pub last_auto_enabled: bool,
+    pub auto_cfg: AutoConfig,
 }
 
 impl Default for AppSettings {
@@ -16,6 +24,9 @@ impl Default for AppSettings {
             show_in_tray: true,
             run_on_startup: false,
             reset_on_exit: true,
+            last_cap_mhz: Some(DEFAULT_CAP_MHZ),
+            last_auto_enabled: false,
+            auto_cfg: AutoConfig::default(),
         }
     }
 }
@@ -60,26 +71,65 @@ impl AppSettings {
         let mut s = Self::default();
         for line in text.lines() {
             let Some((k, v)) = line.split_once('=') else { continue };
-            let val = matches!(v.trim(), "true" | "1");
+            let v = v.trim();
+            let b = matches!(v, "true" | "1");
             match k.trim() {
-                "show_in_tray" => s.show_in_tray = val,
-                "run_on_startup" => s.run_on_startup = val,
-                "reset_on_exit" => s.reset_on_exit = val,
+                "show_in_tray" => s.show_in_tray = b,
+                "run_on_startup" => s.run_on_startup = b,
+                "reset_on_exit" => s.reset_on_exit = b,
+                "last_cap_mhz" => {
+                    s.last_cap_mhz = if v.eq_ignore_ascii_case("none") {
+                        None
+                    } else {
+                        v.parse::<u32>().ok().filter(|&m| m >= 400).or(s.last_cap_mhz)
+                    };
+                }
+                "last_auto_enabled" => s.last_auto_enabled = b,
+                "auto_high_c" => if let Ok(x) = v.parse() { s.auto_cfg.high_c = x; },
+                "auto_low_c" => if let Ok(x) = v.parse() { s.auto_cfg.low_c = x; },
+                "auto_min_mhz" => if let Ok(x) = v.parse() { s.auto_cfg.min_mhz = x; },
+                "auto_max_mhz" => if let Ok(x) = v.parse() { s.auto_cfg.max_mhz = x; },
+                "auto_step_mhz" => if let Ok(x) = v.parse() { s.auto_cfg.step_mhz = x; },
                 _ => {}
             }
+        }
+        if s.auto_cfg.validate().is_err() {
+            s.auto_cfg = AutoConfig::default();
         }
         s
     }
 
     fn serialize(&self) -> String {
+        let cap = match self.last_cap_mhz {
+            Some(m) => m.to_string(),
+            None => "none".into(),
+        };
         format!(
-            "show_in_tray={}\nrun_on_startup={}\nreset_on_exit={}\n",
-            self.show_in_tray, self.run_on_startup, self.reset_on_exit
+            "show_in_tray={}\n\
+             run_on_startup={}\n\
+             reset_on_exit={}\n\
+             last_cap_mhz={}\n\
+             last_auto_enabled={}\n\
+             auto_high_c={}\n\
+             auto_low_c={}\n\
+             auto_min_mhz={}\n\
+             auto_max_mhz={}\n\
+             auto_step_mhz={}\n",
+            self.show_in_tray,
+            self.run_on_startup,
+            self.reset_on_exit,
+            cap,
+            self.last_auto_enabled,
+            self.auto_cfg.high_c,
+            self.auto_cfg.low_c,
+            self.auto_cfg.min_mhz,
+            self.auto_cfg.max_mhz,
+            self.auto_cfg.step_mhz,
         )
     }
 }
 
-/// Enable or disable launching `kool-cpu-gui --startup` (coolmode off) at user login.
+/// Enable or disable launching `kool-cpu-gui --startup` at user login.
 pub fn apply_startup(enable: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
 
@@ -101,7 +151,6 @@ pub fn apply_startup(enable: bool) -> Result<(), String> {
         let out = cmd.output().map_err(|e| format!("cannot run schtasks: {e}"))?;
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            // Deleting a task that doesn't exist is fine.
             if enable || !err.contains("cannot find") {
                 return Err(if err.is_empty() {
                     "schtasks failed (run as Administrator?)".into()
@@ -148,9 +197,23 @@ mod tests {
             show_in_tray: false,
             run_on_startup: true,
             reset_on_exit: false,
+            last_cap_mhz: Some(2600),
+            last_auto_enabled: true,
+            auto_cfg: AutoConfig {
+                high_c: 82.0,
+                low_c: 70.0,
+                min_mhz: 2000,
+                max_mhz: 3800,
+                step_mhz: 200,
+            },
         };
         s.save_to(&path).unwrap();
         assert_eq!(AppSettings::load_from(&path), s);
+
+        let unlimited = AppSettings { last_cap_mhz: None, ..s };
+        unlimited.save_to(&path).unwrap();
+        assert_eq!(AppSettings::load_from(&path).last_cap_mhz, None);
+
         let _ = fs::remove_file(&path);
     }
 }
