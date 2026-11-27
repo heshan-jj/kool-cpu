@@ -815,8 +815,16 @@ impl eframe::App for CoolerApp {
         let mut trigger_cap: Option<(Option<u32>, bool)> = None;
         let mut wake_worker = false;
 
-        // Handle system tray menu & left-click events.
-        if let Some(tray) = &self.tray {
+        // Handle system tray menu, left-click, and live temperature icon updates.
+        let (tray_temp, tray_cap) = {
+            let s = self.sync.state.lock().unwrap();
+            (
+                s.telemetry.as_ref().and_then(|t| t.temp_c),
+                s.telemetry.as_ref().and_then(|t| t.cap_mhz),
+            )
+        };
+        if let Some(tray) = &mut self.tray {
+            tray.update_temp(tray_temp, tray_cap);
             for action in tray.poll() {
                 match action {
                     tray::TrayAction::Show => {
