@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Cross-platform Material Design 3 egui GUI for kool-cpu (Windows & Linux).
 
+mod settings;
 mod tray;
 
 use kool_cpu_backend::native_backend;
@@ -215,9 +216,17 @@ fn spawn_worker(sync: Arc<WorkerSync>, ctx: egui::Context) {
     });
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Monitor,
+    Settings,
+}
+
 struct CoolerApp {
     sync: Arc<WorkerSync>,
     tray: Option<tray::Tray>,
+    settings: settings::AppSettings,
+    page: Page,
     quitting: bool,
     slider_mhz: u32,
     slider_synced: bool,
@@ -225,18 +234,157 @@ struct CoolerApp {
 }
 
 impl CoolerApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, settings: settings::AppSettings, launched_at_startup: bool) -> Self {
         configure_material3(&cc.egui_ctx);
         let sync = WorkerSync::new();
+        if launched_at_startup {
+            // Startup mode always begins with cool mode / auto mode off (full default speed).
+            sync.request_cap(None, true);
+        }
         spawn_worker(Arc::clone(&sync), cc.egui_ctx.clone());
+        let tray = if settings.show_in_tray {
+            tray::Tray::new().ok()
+        } else {
+            None
+        };
         Self {
             sync,
-            tray: tray::Tray::new().ok(),
+            tray,
+            settings,
+            page: Page::Monitor,
             quitting: false,
             slider_mhz: 3100,
             slider_synced: false,
             slider_dirty: false,
         }
+    }
+
+    fn set_status(&self, msg: impl Into<String>, is_error: bool) {
+        let mut s = self.sync.state.lock().unwrap();
+        s.status = msg.into();
+        s.is_error = is_error;
+    }
+
+    fn render_settings(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("Settings").size(16.0).strong());
+        ui.add_space(4.0);
+
+        // Show in tray
+        Frame::new()
+            .fill(MD_SURFACE_CONTAINER)
+            .corner_radius(CornerRadius::same(14))
+            .inner_margin(Margin::same(14))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(RichText::new("Show in system tray").size(13.5).strong());
+                        ui.label(
+                            RichText::new("Keep kool-cpu in the tray when you close the window")
+                                .size(12.0)
+                                .color(MD_ON_SURFACE_VARIANT),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if md_switch(ui, &mut self.settings.show_in_tray).changed() {
+                            if self.settings.show_in_tray {
+                                match tray::Tray::new() {
+                                    Ok(t) => self.tray = Some(t),
+                                    Err(e) => {
+                                        self.settings.show_in_tray = false;
+                                        self.set_status(format!("Could not create tray icon: {e}"), true);
+                                    }
+                                }
+                            } else {
+                                self.tray = None;
+                            }
+                            if let Err(e) = self.settings.save() {
+                                self.set_status(e, true);
+                            } else {
+                                let msg = if self.settings.show_in_tray {
+                                    "System tray enabled"
+                                } else {
+                                    "System tray disabled — closing window will exit"
+                                };
+                                self.set_status(msg, false);
+                            }
+                        }
+                    });
+                });
+
+                section_divider(ui);
+
+                // Run on startup with cool mode off
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(RichText::new("Run on startup (cool mode off)").size(13.5).strong());
+                        ui.label(
+                            RichText::new("Launch at sign-in with capping and Auto mode disabled")
+                                .size(12.0)
+                                .color(MD_ON_SURFACE_VARIANT),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if md_switch(ui, &mut self.settings.run_on_startup).changed() {
+                            match settings::apply_startup(self.settings.run_on_startup) {
+                                Ok(()) => {
+                                    if let Err(e) = self.settings.save() {
+                                        self.set_status(e, true);
+                                    } else {
+                                        let msg = if self.settings.run_on_startup {
+                                            "Startup enabled (launches with cool mode off)"
+                                        } else {
+                                            "Startup disabled"
+                                        };
+                                        self.set_status(msg, false);
+                                    }
+                                }
+                                Err(e) => {
+                                    self.settings.run_on_startup = !self.settings.run_on_startup;
+                                    self.set_status(friendly_error(&e), true);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                section_divider(ui);
+
+                // Reset throttle on exit
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(RichText::new("Reset CPU speed on exit").size(13.5).strong());
+                        ui.label(
+                            RichText::new("Restore full / default speed when kool-cpu closes or quits")
+                                .size(12.0)
+                                .color(MD_ON_SURFACE_VARIANT),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if md_switch(ui, &mut self.settings.reset_on_exit).changed() {
+                            if let Err(e) = self.settings.save() {
+                                self.set_status(e, true);
+                            } else {
+                                let msg = if self.settings.reset_on_exit {
+                                    "CPU throttle will reset to full speed on exit"
+                                } else {
+                                    "CPU cap will persist after exit"
+                                };
+                                self.set_status(msg, false);
+                            }
+                        }
+                    });
+                });
+            });
+
+        ui.add_space(10.0);
+        ui.label(
+            RichText::new(format!("Saved to {}", settings::AppSettings::config_path().display()))
+                .size(11.0)
+                .color(MD_ON_SURFACE_VARIANT),
+        );
     }
 }
 
@@ -629,6 +777,21 @@ impl eframe::App for CoolerApp {
                             ui.label(RichText::new(cpu).size(12.0).color(MD_ON_SURFACE_VARIANT));
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let nav_label = match self.page {
+                                Page::Monitor => "Settings",
+                                Page::Settings => "Back",
+                            };
+                            let nav_btn = egui::Button::new(RichText::new(nav_label).size(12.0).strong().color(MD_ON_SURFACE))
+                                .fill(MD_SURFACE_CONTAINER_HIGH)
+                                .corner_radius(CornerRadius::same(16))
+                                .min_size(Vec2::new(66.0, 28.0));
+                            if ui.add(nav_btn).clicked() {
+                                self.page = match self.page {
+                                    Page::Monitor => Page::Settings,
+                                    Page::Settings => Page::Monitor,
+                                };
+                            }
+
                             let (label, bg, fg) = if s.is_error {
                                 ("Attention", MD_ERROR_CONTAINER, MD_ERROR)
                             } else if applying {
@@ -645,6 +808,12 @@ impl eframe::App for CoolerApp {
                     });
 
                     ui.add_space(6.0);
+
+                    if self.page == Page::Settings {
+                        drop(s);
+                        self.render_settings(ui);
+                        return;
+                    }
 
                     // Single elevated Telemetry + Graph surface
                     Frame::new()
@@ -809,6 +978,12 @@ impl eframe::App for CoolerApp {
             self.sync.notify();
         }
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if self.settings.reset_on_exit {
+            let _ = native_backend().set_cap_mhz(None);
+        }
+    }
 }
 
 fn capitalize(s: &str) -> String {
@@ -820,11 +995,20 @@ fn capitalize(s: &str) -> String {
 }
 
 fn main() -> eframe::Result {
+    let launched_at_startup = std::env::args().any(|a| a == "--startup");
+    let app_settings = settings::AppSettings::load();
+    let start_visible = !(launched_at_startup && app_settings.show_in_tray);
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([450.0, 580.0])
-            .with_min_inner_size([390.0, 460.0]),
+            .with_min_inner_size([390.0, 460.0])
+            .with_visible(start_visible),
         ..Default::default()
     };
-    eframe::run_native("kool-cpu", options, Box::new(|cc| Ok(Box::new(CoolerApp::new(cc)))))
+    eframe::run_native(
+        "kool-cpu",
+        options,
+        Box::new(move |cc| Ok(Box::new(CoolerApp::new(cc, app_settings, launched_at_startup)))),
+    )
 }
