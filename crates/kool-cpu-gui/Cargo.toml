@@ -1,15 +1,15 @@
 [package]
-name = "cooler-gui"
+name = "kool-cpu-gui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "cooler-gui"
+name = "kool-cpu-gui"
 path = "src/main.rs"
 
 [dependencies]
-cooler-core = { path = "../cooler-core" }
-cooler-backend = { path = "../cooler-backend" }
+kool-cpu-core = { path = "../kool-cpu-core" }
+kool-cpu-backend = { path = "../kool-cpu-backend" }
 # Use glow (OpenGL) instead of default wgpu (DX12/Vulkan) and skip system_fonts scan to keep RAM low.
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }

@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/cooler-core",
-    "crates/cooler-backend",
-    "crates/cooler-cli",
-    "crates/cooler-gui",
+    "crates/kool-cpu-core",
+    "crates/kool-cpu-backend",
+    "crates/kool-cpu-cli",
+    "crates/kool-cpu-gui",
 ]
 
 [workspace.package]

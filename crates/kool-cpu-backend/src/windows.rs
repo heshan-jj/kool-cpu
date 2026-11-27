@@ -1,12 +1,12 @@
-//! Windows backend: manages a dedicated "cooler" power plan via `powercfg`
+//! Windows backend: manages a dedicated "kool-cpu" power plan via `powercfg`
 //! and reads Intel CPU package die temperature via PawnIO (`PawnIOLib.dll` + `IntelMSR.bin`).
 
-use cooler_core::{Backend, Telemetry};
+use kool_cpu_core::{Backend, Telemetry};
 use std::process::Command;
 use std::sync::OnceLock;
 
 const BALANCED_GUID: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
-const PLAN_NAME: &str = "cooler";
+const PLAN_NAME: &str = "kool-cpu";
 const SUB: &str = "SUB_PROCESSOR";
 const FREQ_SETTINGS: &[&str] = &["PROCFREQMAX", "PROCFREQMAX1"];
 
@@ -259,7 +259,7 @@ fn ensure_cooler_scheme() -> Result<String, String> {
         .and_then(|s| s.split_whitespace().next())
         .ok_or_else(|| format!("could not parse duplicated scheme GUID from: {dup}"))?
         .to_string();
-    run("powercfg", &["/changename", &guid, PLAN_NAME, "Managed by cooler"])?;
+    run("powercfg", &["/changename", &guid, PLAN_NAME, "Managed by kool-cpu"])?;
     Ok(guid)
 }
 

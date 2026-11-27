@@ -4,7 +4,7 @@
 pub mod linux;
 pub mod windows;
 
-use cooler_core::Backend;
+use kool_cpu_core::Backend;
 
 pub fn native_backend() -> Box<dyn Backend> {
     #[cfg(target_os = "windows")]
@@ -17,6 +17,6 @@ pub fn native_backend() -> Box<dyn Backend> {
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        compile_error!("cooler-backend supports Windows and Linux");
+        compile_error!("kool-cpu-backend supports Windows and Linux");
     }
 }

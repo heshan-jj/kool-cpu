@@ -1,8 +1,5 @@
 [package]
-name = "cooler-backend"
+name = "kool-cpu-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-
-[dependencies]
-cooler-core = { path = "../cooler-core" }

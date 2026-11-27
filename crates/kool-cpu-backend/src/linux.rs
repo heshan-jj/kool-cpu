@@ -1,7 +1,7 @@
 //! Linux backend: caps CPU frequency via sysfs cpufreq policies and reads
 //! CPU temperature from hwmon (coretemp/k10temp/zenpower) or thermal_zone.
 
-use cooler_core::{Backend, Telemetry};
+use kool_cpu_core::{Backend, Telemetry};
 use std::fs;
 use std::path::{Path, PathBuf};
 

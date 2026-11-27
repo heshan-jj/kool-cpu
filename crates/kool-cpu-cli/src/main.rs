@@ -1,12 +1,12 @@
-//! cooler CLI:
-//!   cooler status
-//!   cooler set <MHz>
-//!   cooler off
-//!   cooler profile [quiet|balanced|max]
-//!   cooler auto [--high 78] [--low 68] [--min 1800] [--max 3600] [--step 200] [--interval 3]
+//! kool-cpu CLI:
+//!   kool-cpu status
+//!   kool-cpu set <MHz>
+//!   kool-cpu off
+//!   kool-cpu profile [quiet|balanced|max]
+//!   kool-cpu auto [--high 78] [--low 68] [--min 1800] [--max 3600] [--step 200] [--interval 3]
 
-use cooler_backend::native_backend;
-use cooler_core::{find_profile, AutoAction, AutoConfig, AutoController, Backend, BUILTIN_PROFILES};
+use kool_cpu_backend::native_backend;
+use kool_cpu_core::{find_profile, AutoAction, AutoConfig, AutoController, Backend, BUILTIN_PROFILES};
 use std::process::exit;
 use std::thread::sleep;
 use std::time::Duration;
@@ -119,7 +119,7 @@ fn main() {
         }
         ["auto", rest @ ..] => cmd_auto(backend.as_ref(), rest),
         _ => {
-            eprintln!("usage: cooler status | set <MHz> | off | profile [name] | auto [flags]");
+            eprintln!("usage: kool-cpu status | set <MHz> | off | profile [name] | auto [flags]");
             exit(2);
         }
     }

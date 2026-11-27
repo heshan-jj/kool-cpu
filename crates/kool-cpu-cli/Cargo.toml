@@ -1,0 +1,13 @@
+[package]
+name = "kool-cpu-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kool-cpu"
+path = "src/main.rs"
+
+[dependencies]
+kool-cpu-core = { path = "../kool-cpu-core" }
+kool-cpu-backend = { path = "../kool-cpu-backend" }

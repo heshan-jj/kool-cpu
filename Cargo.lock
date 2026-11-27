@@ -570,34 +570,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cooler-backend"
-version = "0.2.0"
-dependencies = [
- "cooler-core",
-]
-
-[[package]]
-name = "cooler-cli"
-version = "0.2.0"
-dependencies = [
- "cooler-backend",
- "cooler-core",
-]
-
-[[package]]
-name = "cooler-core"
-version = "0.2.0"
-
-[[package]]
-name = "cooler-gui"
-version = "0.2.0"
-dependencies = [
- "cooler-backend",
- "cooler-core",
- "eframe",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1418,6 +1390,34 @@ name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+
+[[package]]
+name = "kool-cpu-backend"
+version = "0.2.0"
+dependencies = [
+ "kool-cpu-core",
+]
+
+[[package]]
+name = "kool-cpu-cli"
+version = "0.2.0"
+dependencies = [
+ "kool-cpu-backend",
+ "kool-cpu-core",
+]
+
+[[package]]
+name = "kool-cpu-core"
+version = "0.2.0"
+
+[[package]]
+name = "kool-cpu-gui"
+version = "0.2.0"
+dependencies = [
+ "eframe",
+ "kool-cpu-backend",
+ "kool-cpu-core",
+]
 
 [[package]]
 name = "kurbo"
