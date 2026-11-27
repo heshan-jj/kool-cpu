@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Cross-platform Material Design 3 egui GUI for kool-cpu (Windows & Linux).
 
+mod tray;
+
 use kool_cpu_backend::native_backend;
 use kool_cpu_core::{AutoAction, AutoConfig, AutoController, Backend, Telemetry, BUILTIN_PROFILES};
 use eframe::egui::{
@@ -15,22 +17,22 @@ use std::time::Duration;
 const HISTORY_LEN: usize = 60;
 const POLL_SECS: u64 = 2;
 
-// Material Design 3 Dark tonal palette (blue seed, WCAG AA+ verified pairs)
-const MD_SURFACE: Color32 = Color32::from_rgb(17, 19, 24);
-const MD_SURFACE_CONTAINER: Color32 = Color32::from_rgb(27, 30, 37);
-const MD_SURFACE_CONTAINER_HIGH: Color32 = Color32::from_rgb(38, 42, 51);
-const MD_OUTLINE: Color32 = Color32::from_rgb(142, 144, 153);
-const MD_OUTLINE_VARIANT: Color32 = Color32::from_rgb(64, 68, 78);
-const MD_ON_SURFACE: Color32 = Color32::from_rgb(227, 226, 230);
-const MD_ON_SURFACE_VARIANT: Color32 = Color32::from_rgb(188, 192, 204);
-const MD_PRIMARY: Color32 = Color32::from_rgb(168, 199, 250);
-const MD_ON_PRIMARY: Color32 = Color32::from_rgb(6, 46, 111);
-const MD_PRIMARY_CONTAINER: Color32 = Color32::from_rgb(0, 74, 119);
-const MD_ON_PRIMARY_CONTAINER: Color32 = Color32::from_rgb(194, 231, 255);
-const MD_ERROR: Color32 = Color32::from_rgb(242, 184, 181);
-const MD_ERROR_CONTAINER: Color32 = Color32::from_rgb(140, 29, 24);
-const MD_COOL: Color32 = Color32::from_rgb(125, 220, 160);
-const MD_WARM: Color32 = Color32::from_rgb(246, 195, 96);
+// High-contrast Material 3 Dark palette (all text pairs >= 8:1 WCAG AAA)
+const MD_SURFACE: Color32 = Color32::from_rgb(16, 19, 24);
+const MD_SURFACE_CONTAINER: Color32 = Color32::from_rgb(24, 28, 36);
+const MD_SURFACE_CONTAINER_HIGH: Color32 = Color32::from_rgb(35, 41, 52);
+const MD_OUTLINE: Color32 = Color32::from_rgb(122, 132, 150);
+const MD_OUTLINE_VARIANT: Color32 = Color32::from_rgb(54, 61, 74);
+const MD_ON_SURFACE: Color32 = Color32::from_rgb(241, 243, 247);
+const MD_ON_SURFACE_VARIANT: Color32 = Color32::from_rgb(167, 176, 192);
+const MD_PRIMARY: Color32 = Color32::from_rgb(122, 184, 255);
+const MD_ON_PRIMARY: Color32 = Color32::from_rgb(11, 26, 46);
+const MD_PRIMARY_CONTAINER: Color32 = Color32::from_rgb(22, 58, 95);
+const MD_ON_PRIMARY_CONTAINER: Color32 = Color32::from_rgb(216, 235, 255);
+const MD_ERROR: Color32 = Color32::from_rgb(248, 113, 113);
+const MD_ERROR_CONTAINER: Color32 = Color32::from_rgb(92, 26, 30);
+const MD_COOL: Color32 = Color32::from_rgb(110, 231, 183);
+const MD_WARM: Color32 = Color32::from_rgb(251, 191, 36);
 
 struct SharedState {
     telemetry: Option<Telemetry>,
@@ -215,6 +217,8 @@ fn spawn_worker(sync: Arc<WorkerSync>, ctx: egui::Context) {
 
 struct CoolerApp {
     sync: Arc<WorkerSync>,
+    tray: Option<tray::Tray>,
+    quitting: bool,
     slider_mhz: u32,
     slider_synced: bool,
     slider_dirty: bool,
@@ -227,6 +231,8 @@ impl CoolerApp {
         spawn_worker(Arc::clone(&sync), cc.egui_ctx.clone());
         Self {
             sync,
+            tray: tray::Tray::new().ok(),
+            quitting: false,
             slider_mhz: 3100,
             slider_synced: false,
             slider_dirty: false,
@@ -249,11 +255,13 @@ fn configure_material3(ctx: &egui::Context) {
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, MD_ON_SURFACE);
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, MD_OUTLINE_VARIANT);
     visuals.widgets.hovered.corner_radius = CornerRadius::same(18);
-    visuals.widgets.active.bg_fill = MD_PRIMARY;
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0, MD_ON_PRIMARY);
+    // NOTE: egui uses `widgets.active.fg_stroke.color` for `RichText::strong()`, so keep it bright!
+    visuals.widgets.active.bg_fill = MD_PRIMARY_CONTAINER;
+    visuals.widgets.active.fg_stroke = Stroke::new(1.5, MD_ON_SURFACE);
     visuals.widgets.active.corner_radius = CornerRadius::same(18);
     visuals.selection.bg_fill = MD_PRIMARY;
     visuals.selection.stroke = Stroke::new(1.5, MD_PRIMARY);
+    visuals.slider_trailing_fill = true;
 
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
     style.visuals = visuals;
@@ -416,7 +424,7 @@ fn temp_color(c: f32) -> Color32 {
 }
 
 fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<AutoConfig>) {
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 126.0), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 108.0), Sense::hover());
     let painter = ui.painter_at(rect);
 
     let min_t = 30.0f32;
@@ -545,6 +553,36 @@ impl eframe::App for CoolerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let mut trigger_cap: Option<(Option<u32>, bool)> = None;
         let mut wake_worker = false;
+
+        // Handle system tray menu & left-click events.
+        if let Some(tray) = &self.tray {
+            for action in tray.poll() {
+                match action {
+                    tray::TrayAction::Show => {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    tray::TrayAction::SetCap(cap) => {
+                        trigger_cap = Some((cap, true));
+                        if let Some(m) = cap {
+                            self.slider_mhz = m;
+                        }
+                        self.slider_dirty = false;
+                    }
+                    tray::TrayAction::Quit => {
+                        self.quitting = true;
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+            // Hide to tray when user clicks X instead of exiting.
+            if !self.quitting && ui.ctx().input(|i| i.viewport().close_requested()) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            }
+            // Poll tray events responsively even while idle.
+            ui.ctx().request_repaint_after(Duration::from_millis(250));
+        }
 
         // Pinned footer status bar (never clips off-screen)
         let (footer_text, footer_err) = {
@@ -784,8 +822,8 @@ fn capitalize(s: &str) -> String {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([450.0, 520.0])
-            .with_min_inner_size([390.0, 440.0]),
+            .with_inner_size([450.0, 580.0])
+            .with_min_inner_size([390.0, 460.0]),
         ..Default::default()
     };
     eframe::run_native("kool-cpu", options, Box::new(|cc| Ok(Box::new(CoolerApp::new(cc)))))

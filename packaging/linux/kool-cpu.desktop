@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=kool-cpu
+Comment=CPU frequency limiter and thermal manager
+Exec=pkexec /usr/local/bin/kool-cpu-gui
+Terminal=false
+Categories=System;Utility;
