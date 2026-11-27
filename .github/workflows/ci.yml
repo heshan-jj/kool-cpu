@@ -34,18 +34,30 @@ jobs:
       - name: Build release binaries
         run: cargo build --release --workspace
 
+      - name: Build Windows installer (kool-cpu-setup.exe)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\packaging\windows\build-installer.ps1
+
       - name: Package release archive
         shell: bash
         run: |
-          mkdir -p dist
-          cp target/release/kool-cpu${{ matrix.ext }} dist/
-          cp target/release/kool-cpu-gui${{ matrix.ext }} dist/
-          cp LICENSE README.md dist/
+          mkdir -p dist_pkg
+          cp target/release/kool-cpu${{ matrix.ext }} dist_pkg/
+          cp target/release/kool-cpu-gui${{ matrix.ext }} dist_pkg/
+          cp LICENSE README.md dist_pkg/
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/
+          path: dist_pkg/
+
+      - name: Upload Windows setup.exe artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kool-cpu-windows-installer
+          path: dist/kool-cpu-setup.exe
 
   release:
     needs: build
@@ -61,14 +73,19 @@ jobs:
       - name: Zip release bundles and generate SHA-256 checksums
         run: |
           cd artifacts
+          if [ -f kool-cpu-windows-installer/kool-cpu-setup.exe ]; then
+            mv kool-cpu-windows-installer/kool-cpu-setup.exe ./
+            rmdir kool-cpu-windows-installer
+          fi
           for dir in */; do
             name="${dir%/}"
             (cd "$dir" && zip -r "../${name}.zip" .)
           done
-          sha256sum *.zip > checksums.txt
+          sha256sum *.zip *.exe > checksums.txt
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/*.zip
+            artifacts/*.exe
             artifacts/checksums.txt
