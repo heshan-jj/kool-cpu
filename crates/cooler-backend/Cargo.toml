@@ -1,0 +1,8 @@
+[package]
+name = "cooler-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cooler-core = { path = "../cooler-core" }
