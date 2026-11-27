@@ -21,22 +21,94 @@ use std::time::Duration;
 const HISTORY_LEN: usize = 60;
 const POLL_SECS: u64 = 2;
 
-// High-contrast Material 3 Dark palette (all text pairs >= 8:1 WCAG AAA)
-const MD_SURFACE: Color32 = Color32::from_rgb(16, 19, 24);
-const MD_SURFACE_CONTAINER: Color32 = Color32::from_rgb(24, 28, 36);
-const MD_SURFACE_CONTAINER_HIGH: Color32 = Color32::from_rgb(35, 41, 52);
-const MD_OUTLINE: Color32 = Color32::from_rgb(122, 132, 150);
-const MD_OUTLINE_VARIANT: Color32 = Color32::from_rgb(54, 61, 74);
-const MD_ON_SURFACE: Color32 = Color32::from_rgb(241, 243, 247);
-const MD_ON_SURFACE_VARIANT: Color32 = Color32::from_rgb(167, 176, 192);
-const MD_PRIMARY: Color32 = Color32::from_rgb(122, 184, 255);
-const MD_ON_PRIMARY: Color32 = Color32::from_rgb(11, 26, 46);
-const MD_PRIMARY_CONTAINER: Color32 = Color32::from_rgb(22, 58, 95);
-const MD_ON_PRIMARY_CONTAINER: Color32 = Color32::from_rgb(216, 235, 255);
-const MD_ERROR: Color32 = Color32::from_rgb(248, 113, 113);
-const MD_ERROR_CONTAINER: Color32 = Color32::from_rgb(92, 26, 30);
-const MD_COOL: Color32 = Color32::from_rgb(110, 231, 183);
-const MD_WARM: Color32 = Color32::from_rgb(251, 191, 36);
+/// High-contrast Material 3 palette supporting both Dark and Light themes.
+#[derive(Clone, Copy)]
+struct Palette {
+    is_light: bool,
+    surface: Color32,
+    surface_container: Color32,
+    surface_container_high: Color32,
+    hovered_bg: Color32,
+    outline: Color32,
+    outline_variant: Color32,
+    on_surface: Color32,
+    on_surface_variant: Color32,
+    primary: Color32,
+    on_primary: Color32,
+    primary_container: Color32,
+    on_primary_container: Color32,
+    error: Color32,
+    error_container: Color32,
+    cool: Color32,
+    warm: Color32,
+    grid_line: Color32,
+}
+
+impl Palette {
+    fn for_theme(light: bool) -> Self {
+        if light {
+            Self::light()
+        } else {
+            Self::dark()
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            is_light: false,
+            surface: Color32::from_rgb(16, 19, 24),
+            surface_container: Color32::from_rgb(24, 28, 36),
+            surface_container_high: Color32::from_rgb(35, 41, 52),
+            hovered_bg: Color32::from_rgb(48, 55, 68),
+            outline: Color32::from_rgb(122, 132, 150),
+            outline_variant: Color32::from_rgb(54, 61, 74),
+            on_surface: Color32::from_rgb(241, 243, 247),
+            on_surface_variant: Color32::from_rgb(167, 176, 192),
+            primary: Color32::from_rgb(122, 184, 255),
+            on_primary: Color32::from_rgb(11, 26, 46),
+            primary_container: Color32::from_rgb(22, 58, 95),
+            on_primary_container: Color32::from_rgb(216, 235, 255),
+            error: Color32::from_rgb(248, 113, 113),
+            error_container: Color32::from_rgb(92, 26, 30),
+            cool: Color32::from_rgb(110, 231, 183),
+            warm: Color32::from_rgb(251, 191, 36),
+            grid_line: Color32::from_rgba_unmultiplied(227, 226, 230, 18),
+        }
+    }
+
+    fn light() -> Self {
+        Self {
+            is_light: true,
+            surface: Color32::from_rgb(245, 247, 251),
+            surface_container: Color32::from_rgb(255, 255, 255),
+            surface_container_high: Color32::from_rgb(232, 238, 247),
+            hovered_bg: Color32::from_rgb(220, 228, 240),
+            outline: Color32::from_rgb(100, 116, 139),
+            outline_variant: Color32::from_rgb(208, 216, 229),
+            on_surface: Color32::from_rgb(17, 24, 39),
+            on_surface_variant: Color32::from_rgb(71, 85, 105),
+            primary: Color32::from_rgb(26, 102, 204),
+            on_primary: Color32::from_rgb(255, 255, 255),
+            primary_container: Color32::from_rgb(214, 232, 255),
+            on_primary_container: Color32::from_rgb(11, 53, 110),
+            error: Color32::from_rgb(197, 34, 31),
+            error_container: Color32::from_rgb(253, 232, 232),
+            cool: Color32::from_rgb(15, 138, 95),
+            warm: Color32::from_rgb(180, 83, 9),
+            grid_line: Color32::from_rgba_unmultiplied(17, 24, 39, 22),
+        }
+    }
+
+    fn temp_color(&self, c: f32) -> Color32 {
+        if c >= 80.0 {
+            self.error
+        } else if c >= 70.0 {
+            self.warm
+        } else {
+            self.cool
+        }
+    }
+}
 
 struct SharedState {
     telemetry: Option<Telemetry>,
@@ -240,7 +312,8 @@ struct CoolerApp {
 
 impl CoolerApp {
     fn new(cc: &eframe::CreationContext<'_>, settings: settings::AppSettings, launched_at_startup: bool) -> Self {
-        configure_material3(&cc.egui_ctx);
+        let pal = Palette::for_theme(settings.light_theme);
+        configure_material3(&cc.egui_ctx, &pal);
         let sync = WorkerSync::new();
 
         // Restore saved Auto config and apply remembered speed (Balanced 3100 MHz by default).
@@ -324,29 +397,68 @@ impl CoolerApp {
         s.is_error = is_error;
     }
 
-    fn render_settings(&mut self, ui: &mut egui::Ui) {
+    fn render_settings(&mut self, ui: &mut egui::Ui, pal: &Palette) {
         ui.label(RichText::new("Settings").size(16.0).strong());
         ui.add_space(4.0);
 
-        // Show in tray
+        let card_stroke = if pal.is_light {
+            Stroke::new(1.0, pal.outline_variant)
+        } else {
+            Stroke::NONE
+        };
+
         Frame::new()
-            .fill(MD_SURFACE_CONTAINER)
+            .fill(pal.surface_container)
+            .stroke(card_stroke)
             .corner_radius(CornerRadius::same(14))
             .inner_margin(Margin::same(14))
             .show(ui, |ui| {
+                // Light theme toggle
                 ui.horizontal(|ui| {
-                    md_icon_badge(ui, MdIcon::Tray);
+                    md_icon_badge(ui, MdIcon::Sun, pal);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(RichText::new("Light theme").size(13.5).strong());
+                        ui.label(
+                            RichText::new("Switch between Material Light and Dark appearance")
+                                .size(12.0)
+                                .color(pal.on_surface_variant),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if md_switch(ui, &mut self.settings.light_theme, pal).changed() {
+                            let new_pal = Palette::for_theme(self.settings.light_theme);
+                            configure_material3(ui.ctx(), &new_pal);
+                            if let Err(e) = self.settings.save() {
+                                self.set_status(e, true);
+                            } else {
+                                let msg = if self.settings.light_theme {
+                                    "Light theme enabled"
+                                } else {
+                                    "Dark theme enabled"
+                                };
+                                self.set_status(msg, false);
+                            }
+                        }
+                    });
+                });
+
+                section_divider(ui, pal);
+
+                // Show in tray
+                ui.horizontal(|ui| {
+                    md_icon_badge(ui, MdIcon::Tray, pal);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(RichText::new("Show in system tray").size(13.5).strong());
                         ui.label(
                             RichText::new("Keep kool-cpu in the tray when you close the window")
                                 .size(12.0)
-                                .color(MD_ON_SURFACE_VARIANT),
+                                .color(pal.on_surface_variant),
                         );
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if md_switch(ui, &mut self.settings.show_in_tray).changed() {
+                        if md_switch(ui, &mut self.settings.show_in_tray, pal).changed() {
                             if self.settings.show_in_tray {
                                 match tray::Tray::new() {
                                     Ok(t) => self.tray = Some(t),
@@ -372,22 +484,22 @@ impl CoolerApp {
                     });
                 });
 
-                section_divider(ui);
+                section_divider(ui, pal);
 
                 // Run on startup
                 ui.horizontal(|ui| {
-                    md_icon_badge(ui, MdIcon::Power);
+                    md_icon_badge(ui, MdIcon::Power, pal);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(RichText::new("Run on startup").size(13.5).strong());
                         ui.label(
                             RichText::new("Launch at sign-in with your saved speed (default: Balanced 3.1 GHz)")
                                 .size(12.0)
-                                .color(MD_ON_SURFACE_VARIANT),
+                                .color(pal.on_surface_variant),
                         );
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if md_switch(ui, &mut self.settings.run_on_startup).changed() {
+                        if md_switch(ui, &mut self.settings.run_on_startup, pal).changed() {
                             match settings::apply_startup(self.settings.run_on_startup) {
                                 Ok(()) => {
                                     if let Err(e) = self.settings.save() {
@@ -410,22 +522,22 @@ impl CoolerApp {
                     });
                 });
 
-                section_divider(ui);
+                section_divider(ui, pal);
 
                 // Reset throttle on exit
                 ui.horizontal(|ui| {
-                    md_icon_badge(ui, MdIcon::Reset);
+                    md_icon_badge(ui, MdIcon::Reset, pal);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(RichText::new("Reset CPU speed on exit").size(13.5).strong());
                         ui.label(
                             RichText::new("Restore full / default speed when kool-cpu closes or quits")
                                 .size(12.0)
-                                .color(MD_ON_SURFACE_VARIANT),
+                                .color(pal.on_surface_variant),
                         );
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if md_switch(ui, &mut self.settings.reset_on_exit).changed() {
+                        if md_switch(ui, &mut self.settings.reset_on_exit, pal).changed() {
                             if let Err(e) = self.settings.save() {
                                 self.set_status(e, true);
                             } else {
@@ -449,12 +561,13 @@ impl CoolerApp {
         let mut start_install: Option<updater::ReleaseInfo> = None;
 
         Frame::new()
-            .fill(MD_SURFACE_CONTAINER)
+            .fill(pal.surface_container)
+            .stroke(card_stroke)
             .corner_radius(CornerRadius::same(14))
             .inner_margin(Margin::same(14))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    md_icon_badge(ui, MdIcon::Download);
+                    md_icon_badge(ui, MdIcon::Download, pal);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.horizontal(|ui| {
@@ -462,23 +575,23 @@ impl CoolerApp {
                             ui.label(
                                 RichText::new(format!("v{}", updater::CURRENT_VERSION))
                                     .font(FontId::monospace(11.5))
-                                    .color(MD_ON_SURFACE_VARIANT),
+                                    .color(pal.on_surface_variant),
                             );
                         });
                         let (sub, col) = match &upd {
-                            updater::UpdateState::Idle => ("Check GitHub Releases for new versions".into(), MD_ON_SURFACE_VARIANT),
-                            updater::UpdateState::Checking => ("Checking for updates...".into(), MD_ON_SURFACE_VARIANT),
-                            updater::UpdateState::UpToDate => ("You are on the latest version".into(), MD_COOL),
-                            updater::UpdateState::Available(info) => (format!("{} is available", info.tag), MD_PRIMARY),
-                            updater::UpdateState::Updating => ("Downloading & verifying SHA-256...".into(), MD_PRIMARY),
-                            updater::UpdateState::Error(e) => (e.clone(), MD_ERROR),
+                            updater::UpdateState::Idle => ("Check GitHub Releases for new versions".into(), pal.on_surface_variant),
+                            updater::UpdateState::Checking => ("Checking for updates...".into(), pal.on_surface_variant),
+                            updater::UpdateState::UpToDate => ("You are on the latest version".into(), pal.cool),
+                            updater::UpdateState::Available(info) => (format!("{} is available", info.tag), pal.primary),
+                            updater::UpdateState::Updating => ("Downloading & verifying SHA-256...".into(), pal.primary),
+                            updater::UpdateState::Error(e) => (e.clone(), pal.error),
                         };
                         ui.label(RichText::new(sub).size(12.0).color(col));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| match &upd {
                         updater::UpdateState::Available(info) => {
-                            let btn = egui::Button::new(RichText::new("Update").size(12.5).strong().color(MD_ON_PRIMARY))
-                                .fill(MD_PRIMARY)
+                            let btn = egui::Button::new(RichText::new("Update").size(12.5).strong().color(pal.on_primary))
+                                .fill(pal.primary)
                                 .corner_radius(CornerRadius::same(18))
                                 .min_size(Vec2::new(76.0, 32.0));
                             if ui.add(btn).clicked() {
@@ -488,15 +601,15 @@ impl CoolerApp {
                         updater::UpdateState::Checking | updater::UpdateState::Updating => {
                             ui.add_enabled(
                                 false,
-                                egui::Button::new(RichText::new("Working...").size(12.0).color(MD_ON_SURFACE_VARIANT))
-                                    .fill(MD_SURFACE_CONTAINER_HIGH)
+                                egui::Button::new(RichText::new("Working...").size(12.0).color(pal.on_surface_variant))
+                                    .fill(pal.surface_container_high)
                                     .corner_radius(CornerRadius::same(18))
                                     .min_size(Vec2::new(76.0, 32.0)),
                             );
                         }
                         _ => {
-                            let btn = egui::Button::new(RichText::new("Check").size(12.5).strong().color(MD_ON_SURFACE))
-                                .fill(MD_SURFACE_CONTAINER_HIGH)
+                            let btn = egui::Button::new(RichText::new("Check").size(12.5).strong().color(pal.on_surface))
+                                .fill(pal.surface_container_high)
                                 .corner_radius(CornerRadius::same(18))
                                 .min_size(Vec2::new(72.0, 32.0));
                             if ui.add(btn).clicked() {
@@ -517,41 +630,42 @@ impl CoolerApp {
         ui.label(
             RichText::new(format!("Saved to {}", settings::AppSettings::config_path().display()))
                 .size(11.0)
-                .color(MD_ON_SURFACE_VARIANT),
+                .color(pal.on_surface_variant),
         );
     }
 }
 
-fn configure_material3(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = MD_SURFACE;
-    visuals.window_fill = MD_SURFACE;
-    visuals.override_text_color = Some(MD_ON_SURFACE);
-    visuals.widgets.noninteractive.bg_fill = MD_SURFACE_CONTAINER;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, MD_ON_SURFACE);
-    visuals.widgets.inactive.bg_fill = MD_SURFACE_CONTAINER_HIGH;
-    visuals.widgets.inactive.weak_bg_fill = MD_SURFACE_CONTAINER_HIGH;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, MD_ON_SURFACE);
+fn configure_material3(ctx: &egui::Context, pal: &Palette) {
+    let theme = if pal.is_light { egui::Theme::Light } else { egui::Theme::Dark };
+    let mut visuals = if pal.is_light { egui::Visuals::light() } else { egui::Visuals::dark() };
+    visuals.panel_fill = pal.surface;
+    visuals.window_fill = pal.surface;
+    visuals.override_text_color = Some(pal.on_surface);
+    visuals.widgets.noninteractive.bg_fill = pal.surface_container;
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, pal.on_surface);
+    visuals.widgets.inactive.bg_fill = pal.surface_container_high;
+    visuals.widgets.inactive.weak_bg_fill = pal.surface_container_high;
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, pal.on_surface);
     visuals.widgets.inactive.corner_radius = CornerRadius::same(18);
-    visuals.widgets.hovered.bg_fill = Color32::from_rgb(50, 55, 67);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, MD_ON_SURFACE);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, MD_OUTLINE_VARIANT);
+    visuals.widgets.hovered.bg_fill = pal.hovered_bg;
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, pal.on_surface);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, pal.outline_variant);
     visuals.widgets.hovered.corner_radius = CornerRadius::same(18);
-    // NOTE: egui uses `widgets.active.fg_stroke.color` for `RichText::strong()`, so keep it bright!
-    visuals.widgets.active.bg_fill = MD_PRIMARY_CONTAINER;
-    visuals.widgets.active.fg_stroke = Stroke::new(1.5, MD_ON_SURFACE);
+    // NOTE: egui uses `widgets.active.fg_stroke.color` for `RichText::strong()`, so keep it high-contrast!
+    visuals.widgets.active.bg_fill = pal.primary_container;
+    visuals.widgets.active.fg_stroke = Stroke::new(1.5, pal.on_surface);
     visuals.widgets.active.corner_radius = CornerRadius::same(18);
-    visuals.selection.bg_fill = MD_PRIMARY;
-    visuals.selection.stroke = Stroke::new(1.5, MD_PRIMARY);
+    visuals.selection.bg_fill = pal.primary;
+    visuals.selection.stroke = Stroke::new(1.5, pal.primary);
     visuals.slider_trailing_fill = true;
 
-    let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
+    let mut style = (*ctx.style_of(theme)).clone();
     style.visuals = visuals;
     style.spacing.item_spacing = Vec2::new(8.0, 10.0);
     style.spacing.button_padding = Vec2::new(14.0, 8.0);
     style.spacing.slider_rail_height = 6.0;
-    ctx.set_style_of(egui::Theme::Dark, style);
-    ctx.set_theme(egui::Theme::Dark);
+    ctx.set_style_of(theme, style);
+    ctx.set_theme(theme);
 }
 
 fn md_chip(ui: &mut egui::Ui, text: &str, bg: Color32, fg: Color32) {
@@ -569,6 +683,7 @@ fn md_chip(ui: &mut egui::Ui, text: &str, bg: Color32, fg: Color32) {
 enum MdIcon {
     Settings,
     ArrowBack,
+    Sun,
     Tray,
     Power,
     Reset,
@@ -579,7 +694,6 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
     let stroke = Stroke::new(1.8, color);
     match icon {
         MdIcon::Settings => {
-            // Material gear: inner ring + outer ring + 8 radial teeth
             painter.circle_stroke(center, 2.8, stroke);
             painter.circle_stroke(center, 6.2, stroke);
             for i in 0..8 {
@@ -591,15 +705,23 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
             }
         }
         MdIcon::ArrowBack => {
-            // Material arrow_back: horizontal shaft + 45-degree chevron
             let left = Pos2::new(center.x - 6.0, center.y);
             let right = Pos2::new(center.x + 6.0, center.y);
             painter.line_segment([left, right], stroke);
             painter.line_segment([left, Pos2::new(center.x - 1.0, center.y - 5.0)], stroke);
             painter.line_segment([left, Pos2::new(center.x - 1.0, center.y + 5.0)], stroke);
         }
+        MdIcon::Sun => {
+            painter.circle_stroke(center, 3.6, stroke);
+            for i in 0..8 {
+                let a = (i as f32) * std::f32::consts::FRAC_PI_4;
+                let (sin, cos) = a.sin_cos();
+                let p0 = Pos2::new(center.x + cos * 5.8, center.y + sin * 5.8);
+                let p1 = Pos2::new(center.x + cos * 8.0, center.y + sin * 8.0);
+                painter.line_segment([p0, p1], Stroke::new(1.6, color));
+            }
+        }
         MdIcon::Tray => {
-            // Material dock/tray: rounded monitor box with bottom bar
             let r = Rect::from_center_size(center, Vec2::new(14.0, 12.0));
             painter.rect_stroke(r, 2.5, stroke, StrokeKind::Inside);
             painter.line_segment(
@@ -608,7 +730,6 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
             );
         }
         MdIcon::Power => {
-            // Material power_settings_new: open ring + top vertical stem
             let segs = 18;
             let rad = 6.5;
             let start = -std::f32::consts::FRAC_PI_2 + 0.55;
@@ -626,7 +747,6 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
             );
         }
         MdIcon::Reset => {
-            // Material restart_alt: 270-degree circular arc + arrowhead
             let segs = 18;
             let rad = 6.5;
             let start = -std::f32::consts::FRAC_PI_2;
@@ -643,7 +763,6 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
             painter.line_segment([tip, Pos2::new(tip.x - 3.0, tip.y + 3.0)], stroke);
         }
         MdIcon::Download => {
-            // Material download: downward arrow + bottom tray bar
             let top = Pos2::new(center.x, center.y - 6.5);
             let tip = Pos2::new(center.x, center.y + 2.5);
             painter.line_segment([top, tip], stroke);
@@ -658,14 +777,14 @@ fn paint_md_icon(painter: &egui::Painter, center: Pos2, icon: MdIcon, color: Col
 }
 
 /// Material 3 circular 36x36 IconButton with hover/focus states and optional notification dot.
-fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str, badge_dot: bool) -> egui::Response {
+fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str, badge_dot: bool, pal: &Palette) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
     let painter = ui.painter();
     let radius = rect.width() * 0.5;
     let fill = if resp.is_pointer_button_down_on() {
-        MD_PRIMARY_CONTAINER
+        pal.primary_container
     } else if resp.hovered() {
-        MD_SURFACE_CONTAINER_HIGH
+        pal.surface_container_high
     } else {
         Color32::TRANSPARENT
     };
@@ -673,21 +792,21 @@ fn md_icon_button(ui: &mut egui::Ui, icon: MdIcon, tooltip: &str, badge_dot: boo
         painter.circle_filled(rect.center(), radius, fill);
     }
     if resp.has_focus() {
-        painter.circle_stroke(rect.center(), radius, Stroke::new(1.5, MD_PRIMARY));
+        painter.circle_stroke(rect.center(), radius, Stroke::new(1.5, pal.primary));
     }
-    let fg = if resp.hovered() { MD_ON_SURFACE } else { MD_ON_SURFACE_VARIANT };
+    let fg = if resp.hovered() { pal.on_surface } else { pal.on_surface_variant };
     paint_md_icon(painter, rect.center(), icon, fg);
     if badge_dot {
-        painter.circle_filled(Pos2::new(rect.right() - 8.0, rect.top() + 8.0), 4.0, MD_PRIMARY);
+        painter.circle_filled(Pos2::new(rect.right() - 8.0, rect.top() + 8.0), 4.0, pal.primary);
     }
     resp.on_hover_text(tooltip)
 }
 
-fn md_icon_badge(ui: &mut egui::Ui, icon: MdIcon) {
+fn md_icon_badge(ui: &mut egui::Ui, icon: MdIcon, pal: &Palette) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(32.0), Sense::hover());
     let painter = ui.painter();
-    painter.circle_filled(rect.center(), 16.0, MD_SURFACE_CONTAINER_HIGH);
-    paint_md_icon(painter, rect.center(), icon, MD_PRIMARY);
+    painter.circle_filled(rect.center(), 16.0, pal.surface_container_high);
+    paint_md_icon(painter, rect.center(), icon, pal.primary);
 }
 
 /// Drawn vector checkmark (avoids Unicode glyph substitution).
@@ -701,7 +820,7 @@ fn paint_checkmark(painter: &egui::Painter, center: Pos2, color: Color32) {
 }
 
 /// Material 3 pill toggle switch with smooth animated thumb and focus ring.
-fn md_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+fn md_switch(ui: &mut egui::Ui, on: &mut bool, pal: &Palette) -> egui::Response {
     let size = Vec2::new(48.0, 28.0);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if resp.clicked() {
@@ -713,20 +832,20 @@ fn md_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let radius = rect.height() * 0.5;
 
     if resp.has_focus() {
-        painter.rect_stroke(rect.expand(2.5), radius + 2.5, Stroke::new(1.5, MD_PRIMARY), StrokeKind::Outside);
+        painter.rect_stroke(rect.expand(2.5), radius + 2.5, Stroke::new(1.5, pal.primary), StrokeKind::Outside);
     }
 
-    let track_fill = if *on { MD_PRIMARY } else { MD_SURFACE_CONTAINER_HIGH };
+    let track_fill = if *on { pal.primary } else { pal.surface_container_high };
     let track_stroke = if *on {
         Stroke::NONE
     } else {
-        Stroke::new(1.5, if resp.hovered() { MD_ON_SURFACE } else { MD_OUTLINE })
+        Stroke::new(1.5, if resp.hovered() { pal.on_surface } else { pal.outline })
     };
     painter.rect(rect, radius, track_fill, track_stroke, StrokeKind::Inside);
 
     let thumb_r = egui::lerp(7.5..=10.0, how_on);
     let thumb_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
-    let thumb_col = if *on { MD_ON_PRIMARY } else { MD_OUTLINE };
+    let thumb_col = if *on { pal.on_primary } else { pal.outline };
     painter.circle_filled(Pos2::new(thumb_x, rect.center().y), thumb_r, thumb_col);
     resp
 }
@@ -737,13 +856,15 @@ fn md_segmented_profiles(
     current_cap: Option<u32>,
     auto_enabled: bool,
     disabled: bool,
+    pal: &Palette,
 ) -> Option<Option<u32>> {
     let mut clicked_cap: Option<Option<u32>> = None;
     let total_w = ui.available_width();
     let height = 38.0;
 
     Frame::new()
-        .stroke(Stroke::new(1.0, MD_OUTLINE_VARIANT))
+        .fill(if pal.is_light { pal.surface_container } else { Color32::TRANSPARENT })
+        .stroke(Stroke::new(1.0, pal.outline_variant))
         .corner_radius(CornerRadius::same(19))
         .inner_margin(Margin::same(2))
         .show(ui, |ui| {
@@ -762,9 +883,9 @@ fn md_segmented_profiles(
                 let painter = ui.painter();
 
                 let fill = if selected {
-                    MD_PRIMARY_CONTAINER
+                    pal.primary_container
                 } else if resp.hovered() && !disabled {
-                    Color32::from_rgba_unmultiplied(227, 226, 230, 14)
+                    pal.surface_container_high
                 } else {
                     Color32::TRANSPARENT
                 };
@@ -777,24 +898,23 @@ fn md_segmented_profiles(
                 };
                 painter.rect_filled(seg_rect, corners, fill);
 
-                // Subtle vertical divider between unselected adjacent segments
                 if i > 0 && !selected {
                     painter.line_segment(
                         [Pos2::new(seg_rect.left(), seg_rect.top() + 8.0), Pos2::new(seg_rect.left(), seg_rect.bottom() - 8.0)],
-                        Stroke::new(1.0, MD_OUTLINE_VARIANT),
+                        Stroke::new(1.0, pal.outline_variant),
                     );
                 }
 
                 if resp.has_focus() {
-                    painter.rect_stroke(seg_rect.shrink(1.0), corners, Stroke::new(1.5, MD_PRIMARY), StrokeKind::Inside);
+                    painter.rect_stroke(seg_rect.shrink(1.0), corners, Stroke::new(1.5, pal.primary), StrokeKind::Inside);
                 }
 
                 let fg = if selected {
-                    MD_ON_PRIMARY_CONTAINER
+                    pal.on_primary_container
                 } else if disabled {
-                    MD_OUTLINE
+                    pal.outline
                 } else {
-                    MD_ON_SURFACE
+                    pal.on_surface
                 };
 
                 let label = match p.cap_mhz {
@@ -821,17 +941,7 @@ fn md_segmented_profiles(
     clicked_cap
 }
 
-fn temp_color(c: f32) -> Color32 {
-    if c >= 80.0 {
-        MD_ERROR
-    } else if c >= 70.0 {
-        MD_WARM
-    } else {
-        MD_COOL
-    }
-}
-
-fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<AutoConfig>) {
+fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<AutoConfig>, pal: &Palette) {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 108.0), Sense::hover());
     let painter = ui.painter_at(rect);
 
@@ -851,22 +961,20 @@ fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<
         let y = y_for(grid_t);
         painter.line_segment(
             [Pos2::new(rect.left() + pad_left, y), Pos2::new(rect.right() - pad_right, y)],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(227, 226, 230, 16)),
+            Stroke::new(1.0, pal.grid_line),
         );
         painter.text(
             Pos2::new(rect.right() - 2.0, y),
             Align2::RIGHT_CENTER,
             format!("{grid_t:.0}°"),
             FontId::monospace(10.0),
-            MD_ON_SURFACE_VARIANT,
+            pal.on_surface_variant,
         );
     }
 
     if let Some(cfg) = auto_cfg {
-        for (t, label, col) in [
-            (cfg.high_c, "HI", Color32::from_rgba_unmultiplied(242, 184, 181, 150)),
-            (cfg.low_c, "LO", Color32::from_rgba_unmultiplied(125, 220, 160, 150)),
-        ] {
+        for (t, label, base_col) in [(cfg.high_c, "HI", pal.error), (cfg.low_c, "LO", pal.cool)] {
+            let col = Color32::from_rgba_unmultiplied(base_col.r(), base_col.g(), base_col.b(), 170);
             let y = y_for(t);
             painter.line_segment(
                 [Pos2::new(rect.left() + pad_left, y), Pos2::new(rect.right() - pad_right, y)],
@@ -890,9 +998,10 @@ fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<
             .enumerate()
             .map(|(i, &t)| Pos2::new(start_x + i as f32 * step_x, y_for(t)))
             .collect();
-        let line_color = history.back().copied().map(temp_color).unwrap_or(MD_PRIMARY);
+        let line_color = history.back().copied().map(|c| pal.temp_color(c)).unwrap_or(pal.primary);
 
-        let fill_color = Color32::from_rgba_unmultiplied(line_color.r(), line_color.g(), line_color.b(), 26);
+        let fill_alpha = if pal.is_light { 34 } else { 26 };
+        let fill_color = Color32::from_rgba_unmultiplied(line_color.r(), line_color.g(), line_color.b(), fill_alpha);
         let base_y = rect.bottom() - pad_bot;
         for w in pts.windows(2) {
             let quad = vec![w[0], w[1], Pos2::new(w[1].x, base_y), Pos2::new(w[0].x, base_y)];
@@ -902,7 +1011,7 @@ fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<
         painter.add(Shape::line(pts.clone(), Stroke::new(2.2, line_color)));
 
         if let Some(&last) = pts.last() {
-            painter.circle_filled(last, 5.5, Color32::from_rgba_unmultiplied(line_color.r(), line_color.g(), line_color.b(), 50));
+            painter.circle_filled(last, 5.5, Color32::from_rgba_unmultiplied(line_color.r(), line_color.g(), line_color.b(), 55));
             painter.circle_filled(last, 3.0, line_color);
         }
 
@@ -916,22 +1025,22 @@ fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<
                     let t = history[idx];
                     painter.line_segment(
                         [Pos2::new(pt.x, rect.top() + pad_top), Pos2::new(pt.x, base_y)],
-                        Stroke::new(1.0, Color32::from_rgba_unmultiplied(227, 226, 230, 45)),
+                        Stroke::new(1.0, pal.outline_variant),
                     );
-                    painter.circle_filled(pt, 4.0, MD_ON_SURFACE);
+                    painter.circle_filled(pt, 4.0, pal.on_surface);
                     let pill_w = 48.0;
                     let pill_h = 20.0;
                     let px = (pt.x - pill_w * 0.5).clamp(rect.left() + 4.0, rect.right() - pad_right - pill_w - 4.0);
                     let py = (pt.y - pill_h - 8.0).max(rect.top() + 2.0);
                     let pill = Rect::from_min_size(Pos2::new(px, py), Vec2::new(pill_w, pill_h));
-                    painter.rect_filled(pill, 6.0, MD_SURFACE_CONTAINER_HIGH);
-                    painter.rect_stroke(pill, 6.0, Stroke::new(1.0, MD_OUTLINE_VARIANT), StrokeKind::Inside);
+                    painter.rect_filled(pill, 6.0, pal.surface_container_high);
+                    painter.rect_stroke(pill, 6.0, Stroke::new(1.0, pal.outline_variant), StrokeKind::Inside);
                     painter.text(
                         pill.center(),
                         Align2::CENTER_CENTER,
                         format!("{t:.1}°C"),
                         FontId::monospace(10.5),
-                        MD_ON_SURFACE,
+                        pal.on_surface,
                     );
                 }
             }
@@ -942,34 +1051,33 @@ fn draw_temp_graph(ui: &mut egui::Ui, history: &VecDeque<f32>, auto_cfg: Option<
             Align2::CENTER_CENTER,
             "Waiting for sensor readings...",
             FontId::proportional(12.5),
-            MD_ON_SURFACE_VARIANT,
+            pal.on_surface_variant,
         );
     }
 }
 
-fn section_divider(ui: &mut egui::Ui) {
+fn section_divider(ui: &mut egui::Ui, pal: &Palette) {
     ui.add_space(4.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
     ui.painter().line_segment(
         [Pos2::new(rect.left(), rect.center().y), Pos2::new(rect.right(), rect.center().y)],
-        Stroke::new(1.0, MD_OUTLINE_VARIANT),
+        Stroke::new(1.0, pal.outline_variant),
     );
     ui.add_space(4.0);
 }
 
 impl eframe::App for CoolerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let pal = Palette::for_theme(self.settings.light_theme);
         let mut trigger_cap: Option<(Option<u32>, bool)> = None;
         let mut wake_worker = false;
 
-        // Close old process once the newly updated binary has been spawned.
         if self.relaunch_ready.load(Ordering::SeqCst) {
             self.quitting = true;
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
 
-        // Handle system tray menu, left-click, and live temperature icon updates.
         let (tray_temp, tray_cap) = {
             let s = self.sync.state.lock().unwrap();
             (
@@ -998,16 +1106,13 @@ impl eframe::App for CoolerApp {
                     }
                 }
             }
-            // Hide to tray when user clicks X instead of exiting.
             if !self.quitting && ui.ctx().input(|i| i.viewport().close_requested()) {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
-            // Poll tray events responsively even while idle.
             ui.ctx().request_repaint_after(Duration::from_millis(250));
         }
 
-        // Pinned footer status bar (never clips off-screen)
         let (footer_text, footer_err) = {
             let s = self.sync.state.lock().unwrap();
             (s.status.clone(), s.is_error)
@@ -1015,17 +1120,17 @@ impl eframe::App for CoolerApp {
         egui::Panel::bottom("status_bar")
             .frame(
                 Frame::new()
-                    .fill(MD_SURFACE_CONTAINER)
-                    .stroke(Stroke::new(1.0, MD_OUTLINE_VARIANT))
+                    .fill(pal.surface_container)
+                    .stroke(Stroke::new(1.0, pal.outline_variant))
                     .inner_margin(Margin::symmetric(16, 10)),
             )
             .show(ui, |ui| {
-                let col = if footer_err { MD_ERROR } else { MD_ON_SURFACE_VARIANT };
+                let col = if footer_err { pal.error } else { pal.on_surface_variant };
                 ui.label(RichText::new(footer_text).size(12.0).color(col));
             });
 
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(MD_SURFACE).inner_margin(Margin::same(16)))
+            .frame(Frame::new().fill(pal.surface).inner_margin(Margin::same(16)))
             .show(ui, |ui| {
                 ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     let mut s = self.sync.state.lock().unwrap();
@@ -1049,7 +1154,7 @@ impl eframe::App for CoolerApp {
                                 .as_ref()
                                 .map(|t| t.cpu_name.as_str())
                                 .unwrap_or("Detecting processor...");
-                            ui.label(RichText::new(cpu).size(12.0).color(MD_ON_SURFACE_VARIANT));
+                            ui.label(RichText::new(cpu).size(12.0).color(pal.on_surface_variant));
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let has_update = matches!(
@@ -1064,7 +1169,7 @@ impl eframe::App for CoolerApp {
                                 ),
                                 Page::Settings => (MdIcon::ArrowBack, "Back to monitor", false),
                             };
-                            if md_icon_button(ui, icon, tip, dot).clicked() {
+                            if md_icon_button(ui, icon, tip, dot, &pal).clicked() {
                                 self.page = match self.page {
                                     Page::Monitor => Page::Settings,
                                     Page::Settings => Page::Monitor,
@@ -1072,15 +1177,15 @@ impl eframe::App for CoolerApp {
                             }
 
                             let (label, bg, fg) = if s.is_error {
-                                ("Attention", MD_ERROR_CONTAINER, MD_ERROR)
+                                ("Attention", pal.error_container, pal.error)
                             } else if applying {
-                                ("Applying", MD_SURFACE_CONTAINER_HIGH, MD_PRIMARY)
+                                ("Applying", pal.surface_container_high, pal.primary)
                             } else if s.auto_enabled {
-                                ("Auto", MD_PRIMARY_CONTAINER, MD_ON_PRIMARY_CONTAINER)
+                                ("Auto", pal.primary_container, pal.on_primary_container)
                             } else if current_cap.is_some() {
-                                ("Capped", MD_PRIMARY_CONTAINER, MD_ON_PRIMARY_CONTAINER)
+                                ("Capped", pal.primary_container, pal.on_primary_container)
                             } else {
-                                ("Full speed", MD_SURFACE_CONTAINER_HIGH, MD_ON_SURFACE_VARIANT)
+                                ("Full speed", pal.surface_container_high, pal.on_surface_variant)
                             };
                             md_chip(ui, label, bg, fg);
                         });
@@ -1090,13 +1195,20 @@ impl eframe::App for CoolerApp {
 
                     if self.page == Page::Settings {
                         drop(s);
-                        self.render_settings(ui);
+                        self.render_settings(ui, &pal);
                         return;
                     }
 
-                    // Single elevated Telemetry + Graph surface
+                    let card_stroke = if pal.is_light {
+                        Stroke::new(1.0, pal.outline_variant)
+                    } else {
+                        Stroke::NONE
+                    };
+
+                    // Elevated Telemetry + Graph surface
                     Frame::new()
-                        .fill(MD_SURFACE_CONTAINER)
+                        .fill(pal.surface_container)
+                        .stroke(card_stroke)
                         .corner_radius(CornerRadius::same(16))
                         .inner_margin(Margin::same(16))
                         .show(ui, |ui| {
@@ -1107,7 +1219,7 @@ impl eframe::App for CoolerApp {
                                             RichText::new(format!("{c:.1}°C"))
                                                 .font(FontId::monospace(32.0))
                                                 .strong()
-                                                .color(temp_color(c)),
+                                                .color(pal.temp_color(c)),
                                         );
                                     }
                                     None => {
@@ -1115,7 +1227,7 @@ impl eframe::App for CoolerApp {
                                             RichText::new("--.-°C")
                                                 .font(FontId::monospace(32.0))
                                                 .strong()
-                                                .color(MD_ON_SURFACE_VARIANT),
+                                                .color(pal.on_surface_variant),
                                         );
                                     }
                                 }
@@ -1135,7 +1247,7 @@ impl eframe::App for CoolerApp {
                                             ui.label(
                                                 RichText::new(format!("{min:.0}° / {avg:.0}° / {max:.0}°"))
                                                     .font(FontId::monospace(11.5))
-                                                    .color(MD_ON_SURFACE_VARIANT),
+                                                    .color(pal.on_surface_variant),
                                             )
                                             .on_hover_text("2-minute Min / Avg / Max");
                                         }
@@ -1144,14 +1256,14 @@ impl eframe::App for CoolerApp {
                             });
 
                             ui.add_space(6.0);
-                            draw_temp_graph(ui, &s.history, s.auto_enabled.then_some(s.auto_cfg));
+                            draw_temp_graph(ui, &s.history, s.auto_enabled.then_some(s.auto_cfg), &pal);
                         });
 
                     ui.add_space(8.0);
 
-                    // Power profile section (directly on surface — no card spam)
+                    // Power profile section
                     ui.label(RichText::new("Power profile").size(13.5).strong());
-                    if let Some(cap) = md_segmented_profiles(ui, current_cap, s.auto_enabled, applying) {
+                    if let Some(cap) = md_segmented_profiles(ui, current_cap, s.auto_enabled, applying, &pal) {
                         trigger_cap = Some((cap, true));
                         if let Some(m) = cap {
                             self.slider_mhz = m;
@@ -1159,7 +1271,7 @@ impl eframe::App for CoolerApp {
                         self.slider_dirty = false;
                     }
 
-                    section_divider(ui);
+                    section_divider(ui, &pal);
 
                     // Manual frequency cap section
                     ui.horizontal(|ui| {
@@ -1168,7 +1280,7 @@ impl eframe::App for CoolerApp {
                             ui.label(
                                 RichText::new(format!("{:.2} GHz ({} MHz)", self.slider_mhz as f32 / 1000.0, self.slider_mhz))
                                     .font(FontId::monospace(12.5))
-                                    .color(if self.slider_dirty { MD_PRIMARY } else { MD_ON_SURFACE_VARIANT }),
+                                    .color(if self.slider_dirty { pal.primary } else { pal.on_surface_variant }),
                             );
                         });
                     });
@@ -1186,9 +1298,9 @@ impl eframe::App for CoolerApp {
                             }
 
                             let (bg, fg) = if self.slider_dirty {
-                                (MD_PRIMARY, MD_ON_PRIMARY)
+                                (pal.primary, pal.on_primary)
                             } else {
-                                (MD_SURFACE_CONTAINER_HIGH, MD_ON_SURFACE_VARIANT)
+                                (pal.surface_container_high, pal.on_surface_variant)
                             };
                             let apply_btn = egui::Button::new(RichText::new("Apply").size(13.0).strong().color(fg))
                                 .fill(bg)
@@ -1201,7 +1313,7 @@ impl eframe::App for CoolerApp {
                         });
                     });
 
-                    section_divider(ui);
+                    section_divider(ui, &pal);
 
                     // Auto thermal mode section
                     ui.horizontal(|ui| {
@@ -1211,11 +1323,11 @@ impl eframe::App for CoolerApp {
                             ui.label(
                                 RichText::new("Steps clock down when hot and restores speed when cool")
                                     .size(12.0)
-                                    .color(MD_ON_SURFACE_VARIANT),
+                                    .color(pal.on_surface_variant),
                             );
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if md_switch(ui, &mut s.auto_enabled).changed() {
+                            if md_switch(ui, &mut s.auto_enabled, &pal).changed() {
                                 wake_worker = true;
                             }
                         });
@@ -1224,31 +1336,32 @@ impl eframe::App for CoolerApp {
                     if s.auto_enabled {
                         ui.add_space(4.0);
                         Frame::new()
-                            .fill(MD_SURFACE_CONTAINER)
+                            .fill(pal.surface_container)
+                            .stroke(card_stroke)
                             .corner_radius(CornerRadius::same(12))
                             .inner_margin(Margin::same(12))
                             .show(ui, |ui| {
                                 let mut cfg_changed = false;
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Throttle ≥").size(12.0).color(MD_ON_SURFACE_VARIANT));
+                                    ui.label(RichText::new("Throttle ≥").size(12.0).color(pal.on_surface_variant));
                                     cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.high_c).range(50.0..=95.0).suffix(" °C")).changed();
                                     ui.add_space(12.0);
-                                    ui.label(RichText::new("Relax ≤").size(12.0).color(MD_ON_SURFACE_VARIANT));
+                                    ui.label(RichText::new("Relax ≤").size(12.0).color(pal.on_surface_variant));
                                     cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.low_c).range(40.0..=90.0).suffix(" °C")).changed();
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Min").size(12.0).color(MD_ON_SURFACE_VARIANT));
+                                    ui.label(RichText::new("Min").size(12.0).color(pal.on_surface_variant));
                                     cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.min_mhz).range(800..=4000).speed(100).suffix(" MHz")).changed();
-                                    ui.label(RichText::new("Max").size(12.0).color(MD_ON_SURFACE_VARIANT));
+                                    ui.label(RichText::new("Max").size(12.0).color(pal.on_surface_variant));
                                     cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.max_mhz).range(1200..=5500).speed(100).suffix(" MHz")).changed();
-                                    ui.label(RichText::new("Step").size(12.0).color(MD_ON_SURFACE_VARIANT));
+                                    ui.label(RichText::new("Step").size(12.0).color(pal.on_surface_variant));
                                     cfg_changed |= ui.add(egui::DragValue::new(&mut s.auto_cfg.step_mhz).range(100..=500).speed(50).suffix(" MHz")).changed();
                                 });
                                 if cfg_changed {
                                     wake_worker = true;
                                 }
                                 if let Err(msg) = s.auto_cfg.validate() {
-                                    ui.label(RichText::new(msg).size(11.5).color(MD_ERROR));
+                                    ui.label(RichText::new(msg).size(11.5).color(pal.error));
                                 }
                             });
                     }
@@ -1275,7 +1388,6 @@ impl eframe::App for CoolerApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // Skip resetting CPU speed if we're only exiting to hand off to the newly updated binary.
         if self.settings.reset_on_exit && !self.relaunch_ready.load(Ordering::SeqCst) {
             let _ = native_backend().set_cap_mhz(None);
         }

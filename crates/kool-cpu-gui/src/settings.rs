@@ -11,6 +11,7 @@ pub struct AppSettings {
     pub show_in_tray: bool,
     pub run_on_startup: bool,
     pub reset_on_exit: bool,
+    pub light_theme: bool,
     /// Remembered manual/profile cap (`None` = unlimited/Max). Defaults to Balanced (3100 MHz).
     pub last_cap_mhz: Option<u32>,
     /// Whether Auto Thermal Mode was enabled on last normal session.
@@ -24,6 +25,7 @@ impl Default for AppSettings {
             show_in_tray: true,
             run_on_startup: false,
             reset_on_exit: true,
+            light_theme: false,
             last_cap_mhz: Some(DEFAULT_CAP_MHZ),
             last_auto_enabled: false,
             auto_cfg: AutoConfig::default(),
@@ -77,6 +79,7 @@ impl AppSettings {
                 "show_in_tray" => s.show_in_tray = b,
                 "run_on_startup" => s.run_on_startup = b,
                 "reset_on_exit" => s.reset_on_exit = b,
+                "light_theme" => s.light_theme = b,
                 "last_cap_mhz" => {
                     s.last_cap_mhz = if v.eq_ignore_ascii_case("none") {
                         None
@@ -108,6 +111,7 @@ impl AppSettings {
             "show_in_tray={}\n\
              run_on_startup={}\n\
              reset_on_exit={}\n\
+             light_theme={}\n\
              last_cap_mhz={}\n\
              last_auto_enabled={}\n\
              auto_high_c={}\n\
@@ -118,6 +122,7 @@ impl AppSettings {
             self.show_in_tray,
             self.run_on_startup,
             self.reset_on_exit,
+            self.light_theme,
             cap,
             self.last_auto_enabled,
             self.auto_cfg.high_c,
@@ -197,6 +202,7 @@ mod tests {
             show_in_tray: false,
             run_on_startup: true,
             reset_on_exit: false,
+            light_theme: true,
             last_cap_mhz: Some(2600),
             last_auto_enabled: true,
             auto_cfg: AutoConfig {
