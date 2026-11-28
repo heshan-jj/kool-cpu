@@ -1,6 +1,14 @@
 //! Core types, profiles, and temperature-driven hysteresis controller.
 //! Pure Rust with zero OS dependencies so it can be unit-tested anywhere.
 
+/// System power source (AC adapter vs. battery).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerSource {
+    Ac,
+    Battery,
+    Unknown,
+}
+
 /// Hardware snapshot returned by a platform backend.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Telemetry {
@@ -9,6 +17,7 @@ pub struct Telemetry {
     pub temp_source: String,
     /// Current cap in MHz, or `None` when unlimited.
     pub cap_mhz: Option<u32>,
+    pub power_source: PowerSource,
 }
 
 /// Platform abstraction implemented by Windows and Linux backends.
@@ -156,6 +165,7 @@ mod tests {
                 temp_c: Some(60.0),
                 temp_source: "fake".into(),
                 cap_mhz: *self.applied.borrow().last().unwrap_or(&None),
+                power_source: PowerSource::Ac,
             })
         }
 

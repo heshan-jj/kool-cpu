@@ -6,7 +6,9 @@
 //!   kool-cpu auto [--high 78] [--low 68] [--min 1800] [--max 3600] [--step 200] [--interval 3]
 
 use kool_cpu_backend::native_backend;
-use kool_cpu_core::{find_profile, AutoAction, AutoConfig, AutoController, Backend, BUILTIN_PROFILES};
+use kool_cpu_core::{
+    find_profile, AutoAction, AutoConfig, AutoController, Backend, PowerSource, BUILTIN_PROFILES,
+};
 use std::process::exit;
 use std::thread::sleep;
 use std::time::Duration;
@@ -31,6 +33,12 @@ fn cmd_status(backend: &dyn Backend) {
         None => println!("Temp: unavailable ({})", t.temp_source),
     }
     println!("Cap:  {}", fmt_cap(t.cap_mhz));
+    let pwr = match t.power_source {
+        PowerSource::Ac => "Plugged in (AC)",
+        PowerSource::Battery => "On battery",
+        PowerSource::Unknown => "Unknown",
+    };
+    println!("Pwr:  {pwr}");
 }
 
 fn parse_auto_args(args: &[&str]) -> Result<(AutoConfig, u64), String> {

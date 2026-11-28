@@ -1,7 +1,7 @@
 //! Linux backend: caps CPU frequency via sysfs cpufreq policies and reads
 //! CPU temperature from hwmon (coretemp/k10temp/zenpower) or thermal_zone.
 
-use kool_cpu_core::{Backend, Telemetry};
+use kool_cpu_core::{Backend, PowerSource, Telemetry};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -94,6 +94,29 @@ impl LinuxBackend {
             .reduce(f32::max)?;
         Some((max_c, "sysfs:thermal_zone".into()))
     }
+
+    fn read_power_source(&self) -> PowerSource {
+        let ps_dir = self.sys_root.join("class/power_supply");
+        let Ok(entries) = fs::read_dir(ps_dir) else {
+            return PowerSource::Unknown;
+        };
+        let mut saw_mains = false;
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let kind = fs::read_to_string(p.join("type")).unwrap_or_default();
+            if kind.trim().eq_ignore_ascii_case("Mains") {
+                saw_mains = true;
+                if fs::read_to_string(p.join("online")).unwrap_or_default().trim() == "1" {
+                    return PowerSource::Ac;
+                }
+            }
+        }
+        if saw_mains {
+            PowerSource::Battery
+        } else {
+            PowerSource::Unknown
+        }
+    }
 }
 
 impl Default for LinuxBackend {
@@ -142,6 +165,7 @@ impl Backend for LinuxBackend {
             temp_c,
             temp_source,
             cap_mhz,
+            power_source: self.read_power_source(),
         })
     }
 
@@ -197,11 +221,20 @@ mod tests {
         fs::write(hwmon1.join("name"), "coretemp\n").unwrap();
         fs::write(hwmon1.join("temp1_input"), "63500\n").unwrap();
 
+        let ac = root.join("class/power_supply/AC0");
+        fs::create_dir_all(&ac).unwrap();
+        fs::write(ac.join("type"), "Mains\n").unwrap();
+        fs::write(ac.join("online"), "0\n").unwrap();
+
         let b = LinuxBackend::with_sys_root(&root);
         let t = b.telemetry().unwrap();
         assert_eq!(t.cap_mhz, None);
         assert_eq!(t.temp_source, "hwmon:coretemp");
+        assert_eq!(t.power_source, PowerSource::Battery);
         assert!((t.temp_c.unwrap() - 63.5).abs() < 1e-4);
+
+        fs::write(ac.join("online"), "1\n").unwrap();
+        assert_eq!(b.telemetry().unwrap().power_source, PowerSource::Ac);
 
         b.set_cap_mhz(Some(3100)).unwrap();
         assert_eq!(fs::read_to_string(policy.join("scaling_max_freq")).unwrap().trim(), "3100000");

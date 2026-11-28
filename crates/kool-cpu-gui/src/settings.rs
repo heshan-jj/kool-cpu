@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_CAP_MHZ: u32 = 3100; // Balanced
+pub const DEFAULT_BATTERY_CAP_MHZ: u32 = 2400; // Quiet
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppSettings {
@@ -12,6 +13,9 @@ pub struct AppSettings {
     pub run_on_startup: bool,
     pub reset_on_exit: bool,
     pub light_theme: bool,
+    pub ac_dc_enabled: bool,
+    pub ac_cap_mhz: Option<u32>,
+    pub dc_cap_mhz: Option<u32>,
     /// Remembered manual/profile cap (`None` = unlimited/Max). Defaults to Balanced (3100 MHz).
     pub last_cap_mhz: Option<u32>,
     /// Whether Auto Thermal Mode was enabled on last normal session.
@@ -26,6 +30,9 @@ impl Default for AppSettings {
             run_on_startup: false,
             reset_on_exit: true,
             light_theme: false,
+            ac_dc_enabled: false,
+            ac_cap_mhz: Some(DEFAULT_CAP_MHZ),
+            dc_cap_mhz: Some(DEFAULT_BATTERY_CAP_MHZ),
             last_cap_mhz: Some(DEFAULT_CAP_MHZ),
             last_auto_enabled: false,
             auto_cfg: AutoConfig::default(),
@@ -69,6 +76,14 @@ impl AppSettings {
         fs::write(path, self.serialize()).map_err(|e| format!("cannot write settings: {e}"))
     }
 
+    fn parse_cap(v: &str, fallback: Option<u32>) -> Option<u32> {
+        if v.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            v.parse::<u32>().ok().filter(|&m| m >= 400).or(fallback)
+        }
+    }
+
     fn parse(text: &str) -> Self {
         let mut s = Self::default();
         for line in text.lines() {
@@ -80,13 +95,10 @@ impl AppSettings {
                 "run_on_startup" => s.run_on_startup = b,
                 "reset_on_exit" => s.reset_on_exit = b,
                 "light_theme" => s.light_theme = b,
-                "last_cap_mhz" => {
-                    s.last_cap_mhz = if v.eq_ignore_ascii_case("none") {
-                        None
-                    } else {
-                        v.parse::<u32>().ok().filter(|&m| m >= 400).or(s.last_cap_mhz)
-                    };
-                }
+                "ac_dc_enabled" => s.ac_dc_enabled = b,
+                "ac_cap_mhz" => s.ac_cap_mhz = Self::parse_cap(v, s.ac_cap_mhz),
+                "dc_cap_mhz" => s.dc_cap_mhz = Self::parse_cap(v, s.dc_cap_mhz),
+                "last_cap_mhz" => s.last_cap_mhz = Self::parse_cap(v, s.last_cap_mhz),
                 "last_auto_enabled" => s.last_auto_enabled = b,
                 "auto_high_c" => if let Ok(x) = v.parse() { s.auto_cfg.high_c = x; },
                 "auto_low_c" => if let Ok(x) = v.parse() { s.auto_cfg.low_c = x; },
@@ -102,16 +114,22 @@ impl AppSettings {
         s
     }
 
-    fn serialize(&self) -> String {
-        let cap = match self.last_cap_mhz {
+    fn fmt_cap(c: Option<u32>) -> String {
+        match c {
             Some(m) => m.to_string(),
             None => "none".into(),
-        };
+        }
+    }
+
+    fn serialize(&self) -> String {
         format!(
             "show_in_tray={}\n\
              run_on_startup={}\n\
              reset_on_exit={}\n\
              light_theme={}\n\
+             ac_dc_enabled={}\n\
+             ac_cap_mhz={}\n\
+             dc_cap_mhz={}\n\
              last_cap_mhz={}\n\
              last_auto_enabled={}\n\
              auto_high_c={}\n\
@@ -123,7 +141,10 @@ impl AppSettings {
             self.run_on_startup,
             self.reset_on_exit,
             self.light_theme,
-            cap,
+            self.ac_dc_enabled,
+            Self::fmt_cap(self.ac_cap_mhz),
+            Self::fmt_cap(self.dc_cap_mhz),
+            Self::fmt_cap(self.last_cap_mhz),
             self.last_auto_enabled,
             self.auto_cfg.high_c,
             self.auto_cfg.low_c,
@@ -203,6 +224,9 @@ mod tests {
             run_on_startup: true,
             reset_on_exit: false,
             light_theme: true,
+            ac_dc_enabled: true,
+            ac_cap_mhz: None,
+            dc_cap_mhz: Some(2400),
             last_cap_mhz: Some(2600),
             last_auto_enabled: true,
             auto_cfg: AutoConfig {

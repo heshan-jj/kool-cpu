@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>kool-cpu</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="titlebar" data-tauri-drag-region>
+      <div class="titlebar-brand" data-tauri-drag-region>
+        <svg class="titlebar-logo" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="2.5" fill="none" stroke="var(--primary)" stroke-width="1.8"></rect>
+          <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" stroke="var(--primary)" stroke-width="1.6" stroke-linecap="round"></path>
+          <path d="M12 9v6M9.4 10.5l5.2 3M14.6 10.5l-5.2 3" stroke="var(--cool)" stroke-width="1.5" stroke-linecap="round"></path>
+        </svg>
+        <span data-tauri-drag-region>kool-cpu</span>
+      </div>
+      <div class="titlebar-controls">
+        <button id="win-min" class="win-btn" type="button" aria-label="Minimize" title="Minimize">
+          <svg viewBox="0 0 24 24" class="win-icon"><path d="M5 12h14"></path></svg>
+        </button>
+        <button id="win-close" class="win-btn win-close" type="button" aria-label="Close" title="Close">
+          <svg viewBox="0 0 24 24" class="win-icon"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </div>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">
+        <h1>kool-cpu</h1>
+        <p id="cpu-name" class="subtitle">Detecting processor...</p>
+      </div>
+      <div class="topbar-actions">
+        <span id="status-chip" class="chip chip-neutral">Full speed</span>
+        <button id="nav-btn" class="icon-btn" type="button" aria-label="Settings" title="Settings">
+          <svg id="icon-settings" viewBox="0 0 24 24" class="icon">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <svg id="icon-back" viewBox="0 0 24 24" class="icon hidden">
+            <path d="M19 12H5"></path>
+            <path d="m12 19-7-7 7-7"></path>
+          </svg>
+          <span id="update-dot" class="badge-dot hidden"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- Monitor View -->
+      <section id="view-monitor" class="view">
+        <div class="card telemetry-card">
+          <div class="telemetry-head">
+            <div id="temp-readout" class="temp-big mono">--.-°C</div>
+            <div class="telemetry-meta">
+              <div id="cap-readout" class="cap-label mono">Unlimited</div>
+              <div id="stats-readout" class="stats-label mono" title="2-minute Min / Avg / Max">--° / --° / --°</div>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <svg id="temp-chart" viewBox="0 0 400 116" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="temp-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop id="grad-stop-top" offset="0%" stop-color="var(--cool)" stop-opacity="0.28"></stop>
+                  <stop id="grad-stop-bot" offset="100%" stop-color="var(--cool)" stop-opacity="0.0"></stop>
+                </linearGradient>
+              </defs>
+              <g id="chart-grid"></g>
+              <g id="chart-guides"></g>
+              <path id="chart-area" fill="url(#temp-fill)"></path>
+              <path id="chart-line" fill="none" stroke="var(--cool)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path>
+              <circle id="chart-dot-glow" r="6" fill="var(--cool)" opacity="0.25" class="hidden"></circle>
+              <circle id="chart-dot" r="3.2" fill="var(--cool)" class="hidden"></circle>
+              <line id="chart-hover-line" class="hover-line hidden" y1="10" y2="106"></line>
+              <circle id="chart-hover-dot" r="4" class="hover-dot hidden"></circle>
+            </svg>
+            <div id="chart-empty" class="chart-empty">Waiting for sensor readings...</div>
+            <div id="chart-tooltip" class="chart-tooltip mono hidden"></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <span class="section-title">Power profile</span>
+          </div>
+          <div class="segmented" role="group" aria-label="Power profile">
+            <button class="seg-btn" data-cap="2400" type="button">
+              <svg class="seg-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></svg>
+              <span>Quiet 2.4 GHz</span>
+            </button>
+            <button class="seg-btn" data-cap="3100" type="button">
+              <svg class="seg-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></svg>
+              <span>Balanced 3.1 GHz</span>
+            </button>
+            <button class="seg-btn" data-cap="none" type="button">
+              <svg class="seg-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></svg>
+              <span>Max (Full)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="section">
+          <div class="section-head">
+            <span class="section-title">Manual cap</span>
+            <span id="slider-label" class="slider-val mono">3.10 GHz (3100 MHz)</span>
+          </div>
+          <div id="manual-row" class="manual-row">
+            <input id="cap-slider" type="range" min="1200" max="5000" step="100" value="3100" />
+            <button id="apply-btn" class="pill-btn" type="button" disabled>Apply</button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="section">
+          <div class="toggle-row">
+            <div class="toggle-text">
+              <span class="section-title">Auto thermal mode</span>
+              <span class="desc">Steps clock down when hot and restores speed when cool</span>
+            </div>
+            <label class="md-switch">
+              <input id="auto-toggle" type="checkbox" />
+              <span class="md-track"><span class="md-thumb"></span></span>
+            </label>
+          </div>
+
+          <div id="auto-panel" class="auto-panel hidden">
+            <div class="auto-grid">
+              <label class="field">
+                <span>Throttle ≥ (°C)</span>
+                <input id="auto-high" type="number" min="50" max="95" step="1" value="78" />
+              </label>
+              <label class="field">
+                <span>Relax ≤ (°C)</span>
+                <input id="auto-low" type="number" min="40" max="90" step="1" value="68" />
+              </label>
+              <label class="field">
+                <span>Min (MHz)</span>
+                <input id="auto-min" type="number" min="800" max="4000" step="100" value="1800" />
+              </label>
+              <label class="field">
+                <span>Max (MHz)</span>
+                <input id="auto-max" type="number" min="1200" max="5500" step="100" value="3600" />
+              </label>
+              <label class="field">
+                <span>Step (MHz)</span>
+                <input id="auto-step" type="number" min="100" max="500" step="50" value="200" />
+              </label>
+            </div>
+            <p id="auto-error" class="inline-error hidden"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings View -->
+      <section id="view-settings" class="view hidden">
+        <div class="card settings-card">
+          <div class="setting-row">
+            <span class="icon-badge">
+              <svg viewBox="0 0 24 24" class="icon"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+            </span>
+            <div class="toggle-text">
+              <span class="section-title">Light theme</span>
+              <span class="desc">Switch between Material Light and Dark</span>
+            </div>
+            <label class="md-switch">
+              <input id="set-light" type="checkbox" />
+              <span class="md-track"><span class="md-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="setting-row">
+            <span class="icon-badge">
+              <svg viewBox="0 0 24 24" class="icon"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 16h18"></path></svg>
+            </span>
+            <div class="toggle-text">
+              <span class="section-title">Show in system tray</span>
+              <span class="desc">Keep kool-cpu running in the tray when closed</span>
+            </div>
+            <label class="md-switch">
+              <input id="set-tray" type="checkbox" checked />
+              <span class="md-track"><span class="md-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="setting-row">
+            <span class="icon-badge">
+              <svg viewBox="0 0 24 24" class="icon"><path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path></svg>
+            </span>
+            <div class="toggle-text">
+              <span class="section-title">Run on startup</span>
+              <span class="desc">Launch at sign-in with your saved speed</span>
+            </div>
+            <label class="md-switch">
+              <input id="set-startup" type="checkbox" />
+              <span class="md-track"><span class="md-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="setting-row">
+            <span class="icon-badge">
+              <svg viewBox="0 0 24 24" class="icon"><rect x="2" y="7" width="16" height="10" rx="2"></rect><path d="M22 11v2"></path></svg>
+            </span>
+            <div class="toggle-text">
+              <span class="section-title">Plugged-in / Battery switching</span>
+              <span class="desc">Auto-switch profile when you plug in or unplug</span>
+            </div>
+            <label class="md-switch">
+              <input id="set-acdc" type="checkbox" />
+              <span class="md-track"><span class="md-thumb"></span></span>
+            </label>
+          </div>
+
+          <div id="acdc-panel" class="acdc-panel hidden">
+            <div class="acdc-row">
+              <span class="desc">Plugged in</span>
+              <div class="mini-pills" data-target="ac">
+                <button type="button" class="mini-pill" data-cap="2400">Quiet</button>
+                <button type="button" class="mini-pill" data-cap="3100">Balanced</button>
+                <button type="button" class="mini-pill" data-cap="none">Max</button>
+              </div>
+            </div>
+            <div class="acdc-row">
+              <span class="desc">On battery</span>
+              <div class="mini-pills" data-target="dc">
+                <button type="button" class="mini-pill" data-cap="2400">Quiet</button>
+                <button type="button" class="mini-pill" data-cap="3100">Balanced</button>
+                <button type="button" class="mini-pill" data-cap="none">Max</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="setting-row">
+            <span class="icon-badge">
+              <svg viewBox="0 0 24 24" class="icon"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg>
+            </span>
+            <div class="toggle-text">
+              <span class="section-title">Reset CPU speed on exit</span>
+              <span class="desc">Restore full speed when kool-cpu quits</span>
+            </div>
+            <label class="md-switch">
+              <input id="set-reset" type="checkbox" checked />
+              <span class="md-track"><span class="md-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card update-card">
+          <div class="setting-row">
+            <span class="icon-badge">
+              <svg viewBox="0 0 24 24" class="icon"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+            </span>
+            <div class="toggle-text">
+              <span class="section-title">Updates <span id="app-version" class="ver-tag mono">v2.1.0</span></span>
+              <span id="update-desc" class="desc">Check GitHub Releases for new versions</span>
+            </div>
+            <button id="update-btn" class="pill-btn pill-tonal" type="button">Check</button>
+          </div>
+        </div>
+
+        <p id="config-path" class="config-path"></p>
+      </section>
+    </main>
+
+    <footer id="footer" class="footer">
+      <span id="status-text">Connecting to sensors...</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

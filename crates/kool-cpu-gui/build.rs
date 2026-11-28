@@ -1,25 +1,32 @@
 fn main() {
-    #[cfg(windows)]
-    {
-        let ico = "../../packaging/windows/kool-cpu.ico";
-        println!("cargo:rerun-if-changed={ico}");
-        if std::path::Path::new(ico).exists() {
-            let mut res = winresource::WindowsResource::new();
-            res.set_icon(ico);
-            if let Err(e) = res.compile() {
-                println!("cargo:warning=could not embed Windows icon: {e}");
-            }
-        }
-    }
+    println!("cargo:rerun-if-changed=../../packaging/windows/kool-cpu.ico");
 
-    // Embed requireAdministrator UAC manifest in Windows MSVC release builds so
-    // double-clicking kool-cpu-gui.exe prompts for Admin automatically while
-    // `cargo test --workspace` still runs without elevation.
+    // Embed requireAdministrator UAC manifest on Windows MSVC release builds
+    // (skip in debug/test so `cargo test --workspace` runs without elevation).
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
         && std::env::var("PROFILE").as_deref() == Ok("release")
     {
-        println!("cargo:rustc-link-arg-bin=kool-cpu-gui=/MANIFEST:EMBED");
-        println!("cargo:rustc-link-arg-bin=kool-cpu-gui=/MANIFESTUAC:level='requireAdministrator'");
+        let attrs = tauri_build::Attributes::new().windows_attributes(
+            tauri_build::WindowsAttributes::new().app_manifest(
+                r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*" />
+    </dependentAssembly>
+  </dependency>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>"#,
+            ),
+        );
+        tauri_build::try_build(attrs).expect("failed to run tauri-build");
+    } else {
+        tauri_build::build();
     }
 }

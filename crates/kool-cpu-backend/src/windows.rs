@@ -1,7 +1,7 @@
 //! Windows backend: manages a dedicated "kool-cpu" power plan via `powercfg`
 //! and reads Intel CPU package die temperature via PawnIO (`PawnIOLib.dll` + `IntelMSR.bin`).
 
-use kool_cpu_core::{Backend, Telemetry};
+use kool_cpu_core::{Backend, PowerSource, Telemetry};
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -272,6 +272,45 @@ fn read_cpu_name() -> String {
         .unwrap_or_else(|| "Windows CPU".into())
 }
 
+#[cfg(target_os = "windows")]
+fn read_power_source() -> PowerSource {
+    #[repr(C)]
+    struct SystemPowerStatus {
+        ac_line_status: u8,
+        battery_flag: u8,
+        battery_life_percent: u8,
+        system_status_flag: u8,
+        battery_life_time: u32,
+        battery_full_life_time: u32,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetSystemPowerStatus(lp_system_power_status: *mut SystemPowerStatus) -> i32;
+    }
+    let mut s = SystemPowerStatus {
+        ac_line_status: 255,
+        battery_flag: 0,
+        battery_life_percent: 255,
+        system_status_flag: 0,
+        battery_life_time: u32::MAX,
+        battery_full_life_time: u32::MAX,
+    };
+    // SAFETY: `s` is a valid repr(C) SYSTEM_POWER_STATUS buffer.
+    if unsafe { GetSystemPowerStatus(&mut s) } == 0 {
+        return PowerSource::Unknown;
+    }
+    match s.ac_line_status {
+        1 => PowerSource::Ac,
+        0 => PowerSource::Battery,
+        _ => PowerSource::Unknown,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_power_source() -> PowerSource {
+    PowerSource::Unknown
+}
+
 impl Backend for WindowsBackend {
     fn telemetry(&self) -> Result<Telemetry, String> {
         let cap_mhz = run("powercfg", &["/qh", "SCHEME_CURRENT", SUB, FREQ_SETTINGS[0]])
@@ -284,6 +323,7 @@ impl Backend for WindowsBackend {
             temp_c,
             temp_source,
             cap_mhz,
+            power_source: read_power_source(),
         })
     }
 
