@@ -1,5 +1,7 @@
 /target
 /dist
+/kool-cpu-gui.exe
+crates/kool-cpu-gui/gen/
 **/*.rs.bk
 *.pdb
 .DS_Store
