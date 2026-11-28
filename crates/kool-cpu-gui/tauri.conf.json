@@ -27,6 +27,9 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["../../packaging/windows/kool-cpu.ico"]
+    "icon": [
+      "icons/icon.png",
+      "../../packaging/windows/kool-cpu.ico"
+    ]
   }
 }
